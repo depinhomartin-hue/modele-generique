@@ -852,6 +852,10 @@ export function controler({ racine = racineAtelier(), id, production = false, de
       return "Configuration de maquette : " + (fiche.domaine ? fiche.domaine : "adresse workers.dev") + ", jamais indexée";
     }
     if (fiche.demo !== false) r.signaler(ERREUR, "client.json : « demo » doit valoir false pour un site en production (c'est lui qui ouvre l'indexation)");
+    // L'accès libre (bouton « Outrepasser l'authentification ») n'agit que sur
+    // une maquette ; resté dans la fiche d'un vrai client, il rouvrirait son
+    // administration à tout le monde le jour où « demo » repasserait à true.
+    if (fiche.accesLibre === true) r.signaler(ERREUR, "client.json : « accesLibre » doit disparaître d'un site en production");
     const domaine = typeof fiche.domaine === "string" ? fiche.domaine : "";
     if (!domaine) r.signaler(ERREUR, "client.json : « domaine » est vide");
     else if (!/^(?!www\.)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/.test(domaine)) {

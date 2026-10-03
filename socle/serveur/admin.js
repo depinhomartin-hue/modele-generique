@@ -25,7 +25,7 @@ import { echapper, texteBrut } from "../public/rendu/outils.js";
 import { lireContenu } from "./contenu.js";
 import { enTetesAdmin, reponseHtmlAdmin, reponseJsonAdmin, reponseRedirectionAdmin } from "./reponses.js";
 import { DUREE_JETON_MIN, DUREE_SESSION_S } from "./atelier-coeur.js";
-import { adresseEmail, adressesAutorisees, jetonValide, lireOctetsBornes, objetJson, objetSimple, LIMITES_CONTENU, secretDemo, egalEnTempsConstant, ADRESSE_LIEN_DEMO } from "./validation.js";
+import { adresseEmail, adressesAutorisees, jetonValide, lireOctetsBornes, objetJson, objetSimple, LIMITES_CONTENU, secretDemo, egalEnTempsConstant, ADRESSE_LIEN_DEMO, accesLibreActif, ADRESSE_ACCES_LIBRE } from "./validation.js";
 import { envoyerLienConnexion, modeJournalLocal, requeteLocale } from "./courriel.js";
 import { lireDepot, deposerFichiers, retirerFichiers, LIMITE_DEPOT } from "./medias.js";
 
@@ -211,7 +211,21 @@ function pageConnexion(cx, nom, options = {}) {
     "<h1>Administration du site</h1>" +
     '<p class="cx-intro">Indiquez votre adresse e-mail : nous vous envoyons un lien pour entrer. Il n\'y a pas de mot de passe à retenir.</p>' +
     formulaireConnexion(options) +
-    '<p class="cx-aide">' + VALIDITE + "</p>");
+    '<p class="cx-aide">' + VALIDITE + "</p>" +
+    (accesLibreActif(cx.fiche) ? blocAccesLibre() : ""));
+}
+
+/* Le bouton de l'accès libre (maquette seulement, voir validation.js). Un
+   formulaire, pas un lien : un robot qui parcourt /admin ne le « clique »
+   pas en suivant les liens. */
+function blocAccesLibre() {
+  return '<section class="cx-libre" aria-labelledby="cx-libre-titre">' +
+    '<h2 id="cx-libre-titre">Site de démonstration</h2>' +
+    "<p>Pas besoin d'e-mail pour essayer l'administration.</p>" +
+    '<form method="post" action="/admin/libre">' +
+    '<button class="cx-bouton cx-bouton--second" type="submit">Outrepasser l\'authentification</button>' +
+    "</form>" +
+    '<p class="cx-aide">Tout se modifie, sauf les photos.</p></section>';
 }
 
 function pageLienEnvoye(cx, nom, email, local) {
@@ -404,6 +418,14 @@ async function lienDemo(cx) {
   return reponseRedirectionAdmin("/admin", { cookie: cookieSession(cx.url, r.session) });
 }
 
+async function accesLibre(cx) {
+  if (!accesLibreActif(cx.fiche)) return pageInconnue(cx);
+  if (!origineAcceptee(cx.request, cx.url, { stricte: false })) return refusOrigine(cx);
+  const r = await atelier(cx.env).entrerParLienDemo({ email: ADRESSE_ACCES_LIBRE, autorisees: cx.autorisees, detail: "bouton" });
+  if (!r) return pageInconnue(cx);
+  return reponseRedirectionAdmin("/admin", { cookie: cookieSession(cx.url, r.session) });
+}
+
 async function pageInconnue(cx) {
   return reponseHtmlAdmin(pageMessage(cx, await nomDuSite(cx), "Cette page n'existe pas",
     "L'adresse est peut-être mal recopiée.", '<p><a href="/admin">Aller à l\'administration</a></p>'), { statut: 404, methode: cx.methode });
@@ -415,6 +437,7 @@ const ROUTES_PAGES = new Map([
   ["/admin/entrer", { GET: pageDuLien, POST: entrer }],
   ["/admin/deconnexion", { POST: deconnexion, GET: versAccueil }],
   ["/admin/demo", { GET: lienDemo }],
+  ["/admin/libre", { POST: accesLibre, GET: versAccueil }],
   ["/admin/cadre", { GET: (cx) => reponseHtmlAdmin(CADRE, { methode: cx.methode, cadre: true }) }]
 ]);
 

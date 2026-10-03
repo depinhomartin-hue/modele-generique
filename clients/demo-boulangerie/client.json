@@ -5,5 +5,6 @@
   "domaine": "",
   "socle": "0.3.0",
   "categorieGoogle": "Bakery",
+  "accesLibre": true,
   "administration": { "adresses": [] }
 }

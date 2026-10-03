@@ -2207,6 +2207,51 @@ await groupe(2185, async () => {
     !messagesEnBase(b).some((m) => m.nom === "Claire Dupont") && boite.total === 200 && !claireDans());
 });
 
+/* =========================================================
+   L'accès libre d'une maquette (bouton, sans e-mail ni secret)
+   ========================================================= */
+await groupe(1400, async () => {
+  const libre = Object.assign({}, clientDemo, { demo: true, accesLibre: true });
+  const b = creerBanc({ client: libre });
+  const page = await b.appeler("/admin");
+  verifier("accès libre : le bouton est sur la page de connexion", page.statut === 200 &&
+    page.texte.includes('action="/admin/libre"') && page.texte.includes("Outrepasser l&#39;authentification") || page.texte.includes("Outrepasser l'authentification"));
+  const r = await b.appeler("/admin/libre", { methode: "POST", formulaire: {} });
+  const cookie = cookieDe(r.cookies);
+  verifier("accès libre : le bouton ouvre une session, retour à /admin", r.statut === 303 && r.entetes.get("location") === "/admin" && !!cookie);
+  const etat = (await api(b, cookie, "etat")).json;
+  verifier("accès libre : l'éditeur le sait (adresse fictive, accesLibre)", etat.utilisateur.email === "visiteur@demo.invalid" && etat.utilisateur.accesLibre === true);
+  const brouillon = await api(b, cookie, "brouillon", { methode: "PUT", json: { contenu: etat.brouillon.contenu, revision: etat.brouillon.revision } });
+  verifier("accès libre : le brouillon s'enregistre", brouillon.statut === 200);
+  const depot = await api(b, cookie, "medias", { methode: "POST", multipart: formulairePhoto(JPEG_REEL, { nom: "x.jpg" }) });
+  verifier("accès libre : l'envoi de photos est refusé (403), avec une phrase", depot.statut === 403 && depot.json.erreur === "photos_fermees" && /accès libre/.test(depot.json.message));
+  verifier("accès libre : rien n'est écrit dans R2", b.r2.donnees ? b.r2.donnees.size === 0 : true);
+  const journal = b.espace.stockage.sql.exec("SELECT par, detail FROM journal WHERE action = 'connexion'").toArray();
+  verifier("accès libre : la connexion est au journal, et dit d'où elle vient", journal.some((l) => l.par === "visiteur@demo.invalid" && /bouton/.test(l.detail)));
+  verifier("accès libre : GET /admin/libre ramène à /admin", (await b.appeler("/admin/libre")).statut === 303);
+  verifier("accès libre : origine étrangère refusée", (await b.appeler("/admin/libre", { methode: "POST", formulaire: {}, origine: "https://pirate.example" })).statut === 403);
+
+  // Le lien secret, lui, garde les photos sur une maquette en accès libre.
+  const SECRET = "Kq3vX9_tR2-mP8wLz4YbN6cHs1JdF7gA0eUoViQ5";
+  b.env.ACCES_DEMO = SECRET;
+  const cLien = cookieDe((await b.appeler("/admin/demo?cle=" + SECRET)).cookies);
+  const depotLien = await api(b, cLien, "medias", { methode: "POST", multipart: formulairePhoto(JPEG_REEL, { nom: "x.jpg" }) });
+  verifier("accès libre : par le lien secret, les photos restent possibles", depotLien.statut === 201);
+
+  // Sans « accesLibre », ou chez un VRAI client : ni bouton, ni porte.
+  const sans = creerBanc({ client: Object.assign({}, clientDemo, { accesLibre: false }) });
+  verifier("accès libre : sans le réglage, pas de bouton", !(await sans.appeler("/admin")).texte.includes("/admin/libre"));
+  verifier("accès libre : sans le réglage, la porte n'existe pas", (await sans.appeler("/admin/libre", { methode: "POST", formulaire: {} })).statut === 404);
+  const vrai = creerBanc({ client: Object.assign({}, clientDemo, { demo: false, accesLibre: true }) });
+  verifier("accès libre : chez un vrai client, ni bouton ni porte",
+    !(await vrai.appeler("/admin")).texte.includes("/admin/libre") && (await vrai.appeler("/admin/libre", { methode: "POST", formulaire: {} })).statut === 404);
+  // Retirer le réglage ferme les sessions ouvertes par le bouton.
+  const b2 = creerBanc({ client: libre });
+  const c2 = cookieDe((await b2.appeler("/admin/libre", { methode: "POST", formulaire: {} })).cookies);
+  b2.livrer(contenuLivre);
+  verifier("accès libre : session valable tant que le réglage est là", (await api(b2, c2, "etat")).statut === 200);
+});
+
 /* ----- Bilan ----- */
 for (const k of Object.keys(consoleOriginale)) console[k] = consoleOriginale[k];
 if (echecs.length) {

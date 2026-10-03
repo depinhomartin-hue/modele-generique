@@ -38,7 +38,7 @@
 
 import {
   validerContenu, formeCanonique, empreinteDe, sha256Hex, jetonValide, base64url, hex,
-  adresseEmail, octets, objetSimple, aEnPropre
+  adresseEmail, octets, objetSimple, aEnPropre, ADRESSE_ACCES_LIBRE
 } from "./validation.js";
 import { CLE_PUBLIE } from "./contenu.js";
 import { urlMedia, photosCitees, TYPES_IMAGES, LIMITES_PHOTOS } from "./medias.js";
@@ -331,7 +331,13 @@ const SCHEMA = [
 
    Le cœur rend `{ statut, corps }` ; le Worker en fait une réponse HTTP.
    Les messages sont écrits pour un artisan : ils s'affichent tels quels. */
+/* Une session d'accès LIBRE (bouton de la maquette) n'envoie jamais de
+   photo : voir `ADRESSE_ACCES_LIBRE`, validation.js. Vérifié aux DEUX
+   appels du dépôt, avant et après l'écriture dans R2. */
+const photoFermee = (qui) => !!qui && qui.email === ADRESSE_ACCES_LIBRE;
+
 const MESSAGES = {
+  photos_fermees: "L'envoi de photos est fermé en accès libre. Pour changer une photo, passez par le lien d'accès de l'atelier.",
   non_connecte: "Votre connexion a expiré. Reconnectez-vous pour continuer.",
   conflit: "Le brouillon a été modifié ailleurs entre-temps.",
   requete_invalide: "La demande est incomplète. Rechargez la page et réessayez.",
@@ -641,7 +647,7 @@ export class CoeurAtelier {
      la clé). Même session que par e-mail, sans jeton ; l'adresse doit être
      dans la liste autorisée, ce qui n'arrive que si le lien est actif
      (validation.js, `adressesAutorisees`). */
-  async entrerParLienDemo({ email, autorisees } = {}) {
+  async entrerParLienDemo({ email, autorisees, detail } = {}) {
     const adresse = adresseEmail(email);
     if (!adresse || !autorise(adresse, autorisees)) return null;
     const session = base64url(this.aleatoire(32));
@@ -652,7 +658,7 @@ export class CoeurAtelier {
         empreinteSession, adresse, maintenant, maintenant, maintenant + DUREE_SESSION);
       this.ecrire("DELETE FROM sessions WHERE email = ? AND hash NOT IN (SELECT hash FROM sessions WHERE email = ? ORDER BY cree_le DESC, rowid DESC LIMIT ?)",
         adresse, adresse, SESSIONS_PAR_ADRESSE);
-      this.journaliser("connexion", adresse, "Lien d'accès de la maquette");
+      this.journaliser("connexion", adresse, detail === "bouton" ? "Accès libre de la maquette (bouton)" : "Lien d'accès de la maquette");
       return { session, email: adresse };
     });
   }
@@ -1005,7 +1011,7 @@ export class CoeurAtelier {
       const { b } = await this.brouillonAJour(d.livre);
       if (!b) return indisponible();
       return ok({
-        site: objetSimple(d.site) ? d.site : null, utilisateur: { email: qui.email }, brouillon: vueBrouillon(b), publie: vuePublie(b),
+        site: objetSimple(d.site) ? d.site : null, utilisateur: { email: qui.email, accesLibre: photoFermee(qui) }, brouillon: vueBrouillon(b), publie: vuePublie(b),
         messages: { nonLus: this.ligne("SELECT COUNT(*) AS n FROM messages WHERE lu_le IS NULL").n }
       });
     });
@@ -1146,7 +1152,8 @@ export class CoeurAtelier {
 
   /* Avant de lire 8 Mo et d'écrire dans R2 : la session, le quota, et
      l'identifiant de la future photo. */
-  opMediasPreparer() {
+  opMediasPreparer(qui) {
+    if (photoFermee(qui)) return erreur(403, "photos_fermees", MESSAGES.photos_fermees);
     const u = this.usageMedias();
     if (u.nombre >= QUOTA_MEDIAS.nombre || u.octets >= QUOTA_MEDIAS.octets) return erreur(409, "quota_atteint", MESSAGES.quota_atteint);
     return ok({ id: hex(this.aleatoire(16)) });
@@ -1156,6 +1163,7 @@ export class CoeurAtelier {
      réelle. Refusé ici, le Worker retire les fichiers qu'il vient
      d'écrire. */
   opMediasEnregistrer(qui, d, p) {
+    if (photoFermee(qui)) return erreur(403, "photos_fermees", MESSAGES.photos_fermees);
     const image = fichierDecrit(p.image);
     const vignette = p.vignette === null || p.vignette === undefined ? null : fichierDecrit(p.vignette);
     if (!idPhoto(p.id) || !image || !image.largeur || !image.hauteur || (p.vignette != null && !vignette)) return requeteInvalide();

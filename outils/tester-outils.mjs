@@ -389,7 +389,7 @@ try {
     }
     const p = await lancer("controler.mjs", [DEMO, "--production"]);
     verifier("controler démo --production : code 1", p.code === 1, p.tout);
-    for (const attendu of ["« demo » doit valoir false", "« domaine » est vide", "workers_dev doit valoir false", "aucune adresse valide"]) {
+    for (const attendu of ["« demo » doit valoir false", "« accesLibre » doit disparaître", "« domaine » est vide", "workers_dev doit valoir false", "aucune adresse valide"]) {
       verifier("controler démo --production : « " + attendu + " »", p.sortie.includes("✗") && p.sortie.includes(attendu), p.sortie);
     }
     const u = await lancer("controler.mjs", [DEMO, "--prodution"]);

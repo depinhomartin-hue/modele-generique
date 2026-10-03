@@ -133,6 +133,12 @@ Le contenu, les photos et les versions sont émulés dans `.wrangler/`.
   l'éditeur. Seulement si `client.json` dit `"demo": true` — chez un vrai
   client, le secret ne fait rien. `nouveau-client` le tire au hasard et
   le range dans `clients/<id>/.acces-demo`, jamais versionné.
+- **La démo peut s'ouvrir à tout le monde** : avec `"accesLibre": true` dans
+  sa fiche (et `"demo": true`), la page de connexion affiche un bouton
+  « Outrepasser l'authentification ». Ces sessions modifient tout SAUF les
+  photos : le compte Cloudflare héberge d'autres sites, et des images
+  déposées par un inconnu pourraient le faire suspendre. Le contrôle
+  `--production` refuse ce réglage.
 - **Les photos sont réduites dans le navigateur** (1 600 px, vignette de
   400 px) et vérifiées par leurs octets à l'arrivée.
 

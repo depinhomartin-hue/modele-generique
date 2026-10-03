@@ -218,6 +218,27 @@ export function secretDemo(fiche, env) {
   return SECRET_DEMO.test(s) ? s : "";
 }
 
+/* ----- L'accès LIBRE d'une maquette -----
+
+   Plus ouvert que le lien secret : un bouton « Outrepasser
+   l'authentification » sur la page de connexion, pour qui arrive sur
+   /admin — décision de Martin, 4 octobre 2026, pour la démo seulement.
+   Deux conditions, toutes deux dans la FICHE (versionnée, donc visible) :
+   `"demo": true` ET `"accesLibre": true`. Chez un vrai client, le réglage
+   posé par erreur ne fait rien.
+
+   ⚠️ Ces sessions ne peuvent PAS envoyer de photos (atelier-coeur.js,
+   `photoFermee`). Le compte Cloudflare de la démo héberge aussi d'autres
+   sites — Graine de Pensée, au 4 octobre 2026 : un inconnu qui y
+   publierait des images illégales ferait suspendre le compte entier. Les
+   textes, eux, se rattrapent par les versions. Le lien secret garde tout,
+   photos comprises. */
+export const ADRESSE_ACCES_LIBRE = "visiteur@demo.invalid";
+
+export function accesLibreActif(fiche) {
+  return !!fiche && fiche.demo === true && fiche.accesLibre === true;
+}
+
 export function egalEnTempsConstant(a, b) {
   if (typeof a !== "string" || typeof b !== "string" || a.length !== b.length) return false;
   let diff = 0;
@@ -233,6 +254,7 @@ export function egalEnTempsConstant(a, b) {
 export function adressesAutorisees(fiche, env) {
   const ensemble = new Set();
   if (secretDemo(fiche, env)) ensemble.add(ADRESSE_LIEN_DEMO);
+  if (accesLibreActif(fiche)) ensemble.add(ADRESSE_ACCES_LIBRE);
   const admin = fiche && objetSimple(fiche.administration) ? fiche.administration : {};
   for (const a of Array.isArray(admin.adresses) ? admin.adresses : []) {
     const n = adresseEmail(a);

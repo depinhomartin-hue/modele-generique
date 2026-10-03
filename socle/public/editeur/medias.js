@@ -267,7 +267,14 @@ export async function ouvrirMediatheque(app, { chemin }) {
       h("p", { classe: "ed-aide", id: aide }, "Pour les personnes malvoyantes et pour Google. Décrivez ce qu'on voit, par exemple : « Une miche de pain de campagne posée sur une planche »."));
   }
 
-  const corps = h("div", { classe: "ed-mediatheque" }, zoneDepot, envois, etatGrille, grille, outilsChoix, blocDesc);
+  // Accès libre de la maquette : l'envoi de photos est fermé côté serveur
+  // (atelier-coeur.js, `photoFermee`) ; on ne propose pas un geste qui
+  // échouerait à coup sûr. On peut toujours choisir parmi les photos en place.
+  const accesLibre = !!(app.etat.utilisateur && app.etat.utilisateur.accesLibre);
+  const zoneAjout = accesLibre
+    ? h("p", { classe: "ed-aide ed-aide--note" }, "En accès libre, l'envoi de photos est fermé : vous pouvez choisir parmi les photos déjà présentes.")
+    : zoneDepot;
+  const corps = h("div", { classe: "ed-mediatheque" }, zoneAjout, envois, etatGrille, grille, outilsChoix, blocDesc);
   const actions = [];
   if (actuelle) actions.push({ libelle: estLogo ? "Retirer le logo" : "Retirer la photo", valeur: "retirer", style: "secondaire-danger" });
   actions.push({ libelle: "Annuler", valeur: null, style: "secondaire" });
@@ -275,7 +282,7 @@ export async function ouvrirMediatheque(app, { chemin }) {
   const f = ouvrirFenetre({
     titre: estLogo ? "Votre logo" : "Choisir une photo",
     corps, actions, echap: null, large: true,
-    focus: (boite) => boite.querySelector(".ed-depot .ed-bouton")
+    focus: (boite) => boite.querySelector(".ed-depot .ed-bouton") || boite.querySelector(".ed-tuile") || boite.querySelector(".ed-fenetre__actions .ed-bouton")
   });
   const valider = f.element.querySelector('.ed-fenetre__actions .ed-bouton--principal');
 

@@ -225,3 +225,29 @@ body {
     animation: none !important;
   }
 }
+
+/* L'accès libre d'une maquette : séparé du formulaire par un filet, et un
+   bouton au contour (accent sur surface, 7,27:1) pour ne pas passer pour
+   le geste principal d'un vrai site. */
+.cx-libre {
+  margin-top: 1.5rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--filet);
+}
+.cx-libre h2 {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+}
+.cx-libre form {
+  margin: 0;
+}
+.cx-bouton--second {
+  background: var(--surface);
+  color: var(--accent);
+  border: 2px solid var(--accent);
+}
+.cx-bouton--second:hover {
+  background: var(--fond);
+  color: var(--accent-fonce);
+  border-color: var(--accent-fonce);
+}
