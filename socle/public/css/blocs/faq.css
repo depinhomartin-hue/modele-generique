@@ -1,0 +1,21 @@
+/* Les questions fréquentes — <details>, sans JavaScript. */
+.faq__liste { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--trait); }
+.faq__element { border-bottom: 1px solid var(--trait); }
+.faq__question summary {
+  list-style: none; cursor: pointer;
+  display: flex; justify-content: space-between; align-items: center; gap: 16px;
+  padding: 20px 0; min-height: 44px;
+  font-family: var(--display); font-size: calc(1.2rem * var(--echelle-titre, 1)); font-weight: 600; line-height: 1.3;
+}
+.faq__question summary::-webkit-details-marker { display: none; }
+.faq__question summary::after {
+  /* Le « + » est décoratif : la seconde forme (texte de remplacement vide)
+     le retire du nom de la question pour les lecteurs d'écran ; un
+     navigateur qui ne la connaît pas garde la première. */
+  content: "+"; content: "+" / ""; flex: none;
+  width: 32px; height: 32px; display: grid; place-items: center;
+  border: 1px solid var(--trait); border-radius: 50%;
+  font-family: var(--corps); font-size: 1.2rem; font-weight: 400; color: var(--accent);
+}
+.faq__question[open] summary::after { content: "–"; content: "–" / ""; }
+.faq__reponse { padding: 0 0 22px; }

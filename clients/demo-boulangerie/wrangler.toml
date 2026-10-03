@@ -1,0 +1,22 @@
+# Le Worker de la démo « boulangerie ».
+# Le socle est commun : seuls `name`, la fiche (client.json) et le contenu
+# (contenu.json) changent d'un client à l'autre.
+name = "vitrine-demo-boulangerie"
+main = "index.js"
+compatibility_date = "2025-09-01"
+
+# TEMPORAIRE (3 octobre 2026) : la démo est publiée sur une adresse
+# *.workers.dev du compte de Martin, en attendant le compte de l'atelier et
+# son domaine de démonstration. Un site CLIENT, lui, n'est joignable que par
+# son domaine : `workers_dev = false` dès qu'il en a un.
+workers_dev = true
+
+# Les fichiers statiques du socle (CSS, illustrations, modules de rendu),
+# servis par Cloudflare avant le Worker, gratuitement.
+[assets]
+directory = "../../socle/public"
+
+# Phase 2 : l'espace de contenu du client (KV), où l'éditeur publie.
+# [[kv_namespaces]]
+# binding = "CONTENU"
+# id = "…"

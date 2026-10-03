@@ -1,0 +1,25 @@
+/* La galerie — des photos de même format, légende dessous. */
+.galerie__grille {
+  list-style: none; margin: 0; padding: 0;
+  display: grid; gap: clamp(10px, 1.6vw, 18px);
+  grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));
+}
+.galerie__element { min-width: 0; }
+.galerie__figure { margin: 0; display: flex; flex-direction: column; gap: 10px; }
+.galerie__image,
+.galerie__figure .image-attente { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: var(--rayon); }
+.galerie__legende { color: var(--texte-doux); font-size: .95rem; }
+
+/* Le nombre de colonnes suit le nombre d'éléments : quatre éléments dans
+   une grille de trois en laissaient un seul sur la dernière ligne. `:has()`
+   compte les éléments ; un navigateur qui ne le connaît pas garde la grille
+   automatique, sans rien casser. */
+@media (min-width: 640px) {
+  .galerie__grille:has(> :nth-child(2):last-child),
+  .galerie__grille:has(> :nth-child(4):last-child) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (min-width: 900px) {
+  .galerie__grille:has(> :nth-child(3):last-child),
+  .galerie__grille:has(> :nth-child(6):last-child),
+  .galerie__grille:has(> :nth-child(9):last-child) { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}

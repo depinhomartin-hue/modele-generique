@@ -1,0 +1,7 @@
+{
+  "id": "demo-boulangerie",
+  "demo": true,
+  "mentionDemo": "Maquette de démonstration : la boulangerie présentée est fictive.",
+  "domaine": "",
+  "socle": "0.1.0"
+}

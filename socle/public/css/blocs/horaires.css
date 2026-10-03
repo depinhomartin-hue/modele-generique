@@ -1,0 +1,18 @@
+/* Horaires et accès — le tableau des jours, l'adresse et les moyens de
+   joindre. Les heures s'alignent (chiffres tabulaires). */
+.horaires__grille { display: grid; grid-template-columns: minmax(0, 1fr); gap: clamp(20px, 4vw, 56px); align-items: start; }
+@media (min-width: 780px) { .horaires__grille { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
+.horaires__jours { margin: 0; padding: 8px clamp(18px, 2.4vw, 26px); }
+.horaires__ligne { display: flex; justify-content: space-between; gap: 16px; padding: 12px 0; border-bottom: 1px solid var(--trait); }
+.horaires__ligne:last-child { border-bottom: none; }
+.horaires__jour { font-weight: 700; }
+.horaires__heures { margin: 0; font-variant-numeric: tabular-nums; text-align: right; }
+.horaires__acces { display: flex; flex-direction: column; gap: 16px; }
+.horaires__adresse { font-size: 1.15rem; line-height: 1.5; }
+.horaires__contact { display: flex; flex-direction: column; }
+.horaires__etiquette { font-size: .78rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--texte-doux); }
+/* Une adresse e-mail longue se coupe plutôt que d'élargir la page :
+   sans ça, le téléphone défilait sur le côté (relecture du 3 octobre). */
+.horaires__contact a,
+.horaires__contact span[data-edit] { font-size: 1.1rem; font-weight: 700; overflow-wrap: anywhere; }
+.horaires__acces, .horaires__jours { min-width: 0; }

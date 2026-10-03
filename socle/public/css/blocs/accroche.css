@@ -1,0 +1,48 @@
+/* L'accroche — deux dispositions (voir rendu/blocs/accroche.js). */
+.bloc-accroche { padding-block: clamp(40px, 7vw, 96px); }
+.accroche__titre { font-size: calc(clamp(2.3rem, 1.6rem + 3.6vw, 4.4rem) * var(--echelle-titre, 1)); line-height: 1.04; letter-spacing: -.01em; }
+.accroche__titre em { font-style: italic; }
+.accroche__texte { font-size: clamp(1.05rem, 1rem + .4vw, 1.25rem); color: var(--texte-doux); max-width: 46ch; }
+.accroche__contenu { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+.accroche__boutons { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 10px; }
+
+/* Côte à côte : le texte sur le fond du thème, contraste mesuré. */
+.accroche__grille { display: grid; gap: clamp(28px, 5vw, 64px); align-items: center; }
+.accroche--cote .accroche__media { min-width: 0; }
+.accroche--cote .accroche__image,
+.accroche--cote .image-attente {
+  width: 100%; aspect-ratio: 5 / 4; object-fit: cover; border-radius: calc(var(--rayon) * 1.6);
+}
+@media (min-width: 900px) {
+  .accroche__grille { grid-template-columns: minmax(0, 1.05fr) minmax(0, .95fr); }
+}
+
+/* Image en fond : le texte est posé sur un PANNEAU sombre (contexte
+   sombre, 88 % d'opacité), et non plus sur un simple voile en dégradé. Le
+   voile laissait le titre à 1,65:1 sur une photo claire (relecture du
+   3 octobre 2026). Le panneau tient le contraste quelle que soit la photo :
+   `npm run verifier` le mesure posé sur une photo BLANCHE.
+   Le voile reste, léger et décoratif, pour fondre la photo vers le bas. */
+.accroche--pleine { position: relative; display: grid; align-items: end; min-height: clamp(520px, 82vh, 780px); padding-block: 0; isolation: isolate; }
+.accroche--pleine .accroche__media { position: absolute; inset: 0; z-index: -1; }
+.accroche--pleine .accroche__image,
+.accroche--pleine .image-attente { width: 100%; height: 100%; object-fit: cover; aspect-ratio: auto; border-radius: 0; }
+.accroche__voile { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(0, 0, 0, 0) 40%, rgba(0, 0, 0, .35) 100%); }
+.accroche--pleine .accroche__contenu { padding-block: clamp(120px, 18vw, 220px) clamp(32px, 6vw, 72px); }
+.accroche__panneau {
+  position: relative; isolation: isolate;
+  max-width: 680px; padding: clamp(24px, 4vw, 44px);
+  border-radius: calc(var(--rayon) * 1.4);
+  display: flex; flex-direction: column; gap: 18px;
+  /* Contexte sombre, mais fond posé par le calque ci-dessous (88 %). */
+  --texte: var(--c-sur-sombre);
+  --texte-doux: var(--c-texte-doux-sombre);
+  --accent: var(--c-accent-sombre);
+  --sur-accent: var(--c-sombre);
+  color: var(--texte);
+}
+.accroche__panneau::before {
+  content: ""; position: absolute; inset: 0; z-index: -1;
+  background: var(--sombre); opacity: .88; border-radius: inherit;
+}
+.accroche--pleine .accroche__texte { color: var(--texte); }

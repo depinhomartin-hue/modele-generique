@@ -1,0 +1,8 @@
+# Données locales de wrangler (KV, D1, R2 émulés) et dépendances
+.wrangler/
+node_modules/
+# Secrets locaux : jamais dans le dépôt
+.dev.vars
+.dev.vars.*
+.DS_Store
+.apercu/

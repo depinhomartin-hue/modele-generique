@@ -1,0 +1,148 @@
+{
+  "version": 1,
+  "site": {
+    "nom": "Au Pétrin d'Ernestine",
+    "description": "Boulangerie artisanale : pain au levain naturel, farines d'Alsace, viennoiseries pur beurre et kougelhopf le week-end."
+  },
+  "theme": { "id": "fournil", "duo": "chaleureux", "echelleTitres": 1 },
+  "entete": {
+    "liens": [
+      { "texte": "Nos pains", "vers": "#nos-pains" },
+      { "texte": "Le fournil", "vers": "#le-fournil" },
+      { "texte": "Avis", "vers": "#avis" },
+      { "texte": "Horaires", "vers": "#horaires" }
+    ],
+    "bouton": { "texte": "Commander", "vers": "#contact" }
+  },
+  "pages": {
+    "accueil": {
+      "titre": "Au Pétrin d'Ernestine — Boulangerie artisanale",
+      "description": "Pain au levain naturel, farines d'Alsace et fournée à l'aube. Horaires, commandes et accès.",
+      "ordre": ["accroche-1", "presentation-1", "prestations-1", "galerie-1", "avis-1", "horaires-1", "faq-1", "appel-1", "contact-1"]
+    }
+  },
+  "blocs": {
+    "accroche-1": {
+      "type": "accroche",
+      "disposition": "cote-a-cote",
+      "surtitre": "Boulangerie artisanale · Rieddorf",
+      "titre": "Le pain du village, <em>pétri chaque nuit</em>",
+      "texte": "Levain naturel, farines d'Alsace et fournée à l'aube : tout est façonné à la main, ici, dans le fournil derrière la boutique.",
+      "image": "/illustrations/pain.svg",
+      "imageAlt": "Une miche de pain de campagne posée sur une planche, entourée d'épis de blé",
+      "boutons": [
+        { "texte": "Voir nos pains", "vers": "#nos-pains", "style": "plein" },
+        { "texte": "Horaires et accès", "vers": "#horaires", "style": "contour" }
+      ]
+    },
+    "presentation-1": {
+      "type": "presentation",
+      "ancre": "le-fournil",
+      "fond": "doux",
+      "surtitre": "Le fournil",
+      "titre": "Trois générations derrière le pétrin",
+      "texte": "Ernestine a ouvert la boutique en 1962 avec un four à bois et une seule recette de pain. Ses petits-enfants ont gardé le four, le levain qu'elle entretenait et l'habitude de commencer à trois heures du matin.<br><br>Les farines viennent de deux moulins d'Alsace. Rien n'est surgelé : ce qui n'est pas vendu le soir part à l'épicerie solidaire du village.",
+      "image": "/illustrations/fournil.svg",
+      "imageAlt": "La bouche d'un four à pain en briques, le feu allumé, deux miches devant",
+      "inverse": false,
+      "bouton": { "texte": "", "vers": "", "style": "contour" }
+    },
+    "prestations-1": {
+      "type": "prestations",
+      "ancre": "nos-pains",
+      "surtitre": "Chaque jour",
+      "titre": "Nos pains et viennoiseries",
+      "intro": "Ce qui sort du four entre 5 h et 11 h. Les spécialités du week-end se réservent la veille.",
+      "elements": [
+        { "titre": "Pain de campagne au levain", "texte": "Croûte épaisse, mie alvéolée, il se garde quatre jours. Le pain d'Ernestine.", "prix": "4,20 € la miche" },
+        { "titre": "Baguette tradition", "texte": "Farine Label Rouge, pointage long : craquante jusqu'au soir.", "prix": "1,30 €" },
+        { "titre": "Viennoiseries pur beurre", "texte": "Croissants, pains au chocolat et chaussons, feuilletés la veille.", "prix": "dès 1,20 €" },
+        { "titre": "Kougelhopf", "texte": "Le samedi et le dimanche, sucré aux amandes ou salé aux lardons.", "prix": "sur réservation" }
+      ]
+    },
+    "galerie-1": {
+      "type": "galerie",
+      "fond": "doux",
+      "surtitre": "En images",
+      "titre": "Sortis du four ce matin",
+      "intro": "",
+      "images": [
+        { "src": "/illustrations/campagne.svg", "alt": "Une miche de pain de campagne", "legende": "Le campagne au levain" },
+        { "src": "/illustrations/baguettes.svg", "alt": "Deux baguettes tradition", "legende": "Baguettes tradition" },
+        { "src": "/illustrations/croissant.svg", "alt": "Un croissant doré", "legende": "Croissant pur beurre" },
+        { "src": "/illustrations/bretzel.svg", "alt": "Un bretzel parsemé de gros sel", "legende": "Le bretzel du matin" },
+        { "src": "/illustrations/kougelhopf.svg", "alt": "Un kougelhopf saupoudré de sucre glace", "legende": "Kougelhopf du dimanche" },
+        { "src": "/illustrations/tarte.svg", "alt": "Une tarte aux fruits rouges", "legende": "Tarte de saison" }
+      ]
+    },
+    "avis-1": {
+      "type": "avis",
+      "ancre": "avis",
+      "surtitre": "Ils en parlent",
+      "titre": "Ce que disent nos clients",
+      "intro": "",
+      "avis": [
+        { "texte": "Le meilleur campagne de la vallée, et il tient vraiment quatre jours. On fait le détour exprès.", "auteur": "Claire M.", "detail": "Cliente depuis 2015", "note": 5 },
+        { "texte": "Kougelhopf réservé le samedi, retiré le dimanche matin encore tiède. Accueil adorable.", "auteur": "Thomas K.", "detail": "", "note": 5 },
+        { "texte": "Des croissants qui sentent le beurre, enfin. Seul regret : il n'y en a plus après 10 h.", "auteur": "Sophie R.", "detail": "", "note": 4 }
+      ]
+    },
+    "horaires-1": {
+      "type": "horaires",
+      "ancre": "horaires",
+      "surtitre": "Nous trouver",
+      "titre": "Horaires et accès",
+      "intro": "La boutique est sur la place, à côté de la fontaine. Stationnement facile le matin.",
+      "jours": [
+        { "jour": "Lundi", "heures": "Fermé" },
+        { "jour": "Mardi", "heures": "6 h 30 – 13 h · 15 h 30 – 19 h" },
+        { "jour": "Mercredi", "heures": "6 h 30 – 13 h · 15 h 30 – 19 h" },
+        { "jour": "Jeudi", "heures": "6 h 30 – 13 h · 15 h 30 – 19 h" },
+        { "jour": "Vendredi", "heures": "6 h 30 – 13 h · 15 h 30 – 19 h" },
+        { "jour": "Samedi", "heures": "6 h – 18 h" },
+        { "jour": "Dimanche", "heures": "6 h 30 – 12 h 30" }
+      ],
+      "adresse": "3 place de la Fontaine<br>Rieddorf",
+      "telephone": "01 99 00 12 34",
+      "email": "bonjour@example.com",
+      "lienPlan": ""
+    },
+    "faq-1": {
+      "type": "faq",
+      "surtitre": "Questions fréquentes",
+      "titre": "Avant de passer",
+      "intro": "",
+      "questions": [
+        { "question": "Peut-on commander un gros pain pour une fête ?", "reponse": "Oui : couronnes, pains surprise et grandes miches se commandent trois jours à l'avance, par téléphone ou à la boutique." },
+        { "question": "Avez-vous du pain sans gluten ?", "reponse": "Non : le fournil travaille le blé toute la journée et nous ne pouvons pas garantir l'absence de traces. Notre petit épeautre au levain est mieux toléré par certains, mais il contient du gluten." },
+        { "question": "Peut-on payer par carte ?", "reponse": "Oui, dès le premier euro, et sans contact." }
+      ]
+    },
+    "appel-1": {
+      "type": "appel",
+      "fond": "sombre",
+      "titre": "Une commande pour dimanche ?",
+      "texte": "Appelez la veille avant 18 h : nous la mettons de côté.",
+      "bouton": { "texte": "Appeler la boulangerie", "vers": "tel:+33199001234", "style": "plein" }
+    },
+    "contact-1": {
+      "type": "contact",
+      "ancre": "contact",
+      "surtitre": "Contact",
+      "titre": "Nous écrire",
+      "intro": "",
+      "texte": "Une commande spéciale, une question sur un produit ? Nous répondons dans la journée, sauf le lundi.",
+      "telephone": "01 99 00 12 34",
+      "email": "bonjour@example.com"
+    }
+  },
+  "pied": {
+    "texte": "Boulangerie artisanale : levain naturel, farines d'Alsace, tout est fait sur place.",
+    "liens": [
+      { "texte": "Nos pains", "vers": "#nos-pains" },
+      { "texte": "Horaires et accès", "vers": "#horaires" },
+      { "texte": "Contact", "vers": "#contact" }
+    ]
+  },
+  "libelles": {}
+}

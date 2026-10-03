@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "demo-boulangerie",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["wrangler", "dev", "-c", "clients/demo-boulangerie/wrangler.toml", "--port", "8790", "--local"],
+      "port": 8790
+    }
+  ]
+}

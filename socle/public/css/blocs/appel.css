@@ -1,0 +1,6 @@
+/* L'appel à l'action — un bandeau, un geste. */
+.bloc-appel { padding-block: clamp(44px, 6vw, 80px); }
+.appel__contenu { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 24px 40px; }
+.appel__texte { display: flex; flex-direction: column; gap: 8px; min-width: 0; flex: 1 1 420px; }
+.appel__titre { font-size: calc(clamp(1.7rem, 1.3rem + 1.8vw, 2.5rem) * var(--echelle-titre, 1)); }
+.appel__phrase { font-size: 1.1rem; color: var(--texte-doux); }

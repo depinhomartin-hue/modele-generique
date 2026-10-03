@@ -1,0 +1,9 @@
+/* Le contact — le texte d'un côté, les moyens de joindre de l'autre. */
+.contact__grille { display: grid; gap: clamp(24px, 4vw, 56px); align-items: start; }
+@media (min-width: 860px) { .contact__grille { grid-template-columns: minmax(0, 1.1fr) minmax(0, .9fr); } }
+.contact__texte { min-width: 0; }
+.contact__texte .tete-section { margin-bottom: 18px; }
+.contact__moyens { list-style: none; margin: 0; padding: clamp(18px, 2.4vw, 26px); display: flex; flex-direction: column; gap: 18px; }
+.contact__moyen { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.contact__etiquette { font-size: .78rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--texte-doux); }
+.contact__valeur { font-size: 1.2rem; font-weight: 700; overflow-wrap: anywhere; }

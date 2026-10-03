@@ -1,0 +1,13 @@
+/* La présentation — texte et photo côte à côte. */
+.presentation__grille { display: grid; gap: clamp(28px, 5vw, 72px); align-items: center; }
+.presentation__contenu { display: flex; flex-direction: column; min-width: 0; }
+.presentation__contenu .tete-section { margin-bottom: 20px; }
+.presentation__appel { margin-top: 24px; }
+.presentation__media { min-width: 0; }
+.presentation__image,
+.presentation__media .image-attente { width: 100%; aspect-ratio: 4 / 5; object-fit: cover; border-radius: calc(var(--rayon) * 1.6); }
+@media (min-width: 860px) {
+  .presentation__grille { grid-template-columns: minmax(0, 1fr) minmax(0, .9fr); }
+  .presentation--inverse .presentation__media { order: -1; }
+  .presentation--inverse .presentation__grille { grid-template-columns: minmax(0, .9fr) minmax(0, 1fr); }
+}
