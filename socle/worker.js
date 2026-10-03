@@ -10,12 +10,15 @@
    Les fichiers statiques (CSS, polices, illustrations, modules de rendu)
    sont servis par Cloudflare AVANT le Worker, gratuitement et sans compter
    dans les requêtes : le Worker ne reçoit que ce qui n'est pas un fichier
-   de `socle/public/` — les pages, `robots.txt`, `sitemap.xml`. */
+   de `socle/public/` — les pages, `robots.txt`, `sitemap.xml`, et depuis
+   la phase 2 l'administration (`/admin…`) et les photos (`/medias/…`). */
 
 import { rendrePage, normaliser, PAGE_ACCUEIL } from "./public/rendu/page.js";
 import { identifiantValide } from "./public/rendu/outils.js";
 import { lireContenu } from "./serveur/contenu.js";
 import { reponseHtml, reponseTexte, reponseRedirection, reponseMethodeRefusee } from "./serveur/reponses.js";
+import { estAdresseAdmin, routerAdmin } from "./serveur/admin.js";
+import { servirPhoto } from "./serveur/medias.js";
 
 /* L'adresse publique du site : le domaine de la fiche s'il est connu,
    sinon celle de la requête (développement local, sous-domaine de démo). */
@@ -48,9 +51,19 @@ function pageDe(chemin, contenu) {
    Latin-1 y faisait aussi lever le Worker (relecture du 3 octobre 2026).
 
    Les barres et contre-obliques de tête sont réduites à une seule barre ;
-   si rien ne reste, ce n'est pas une page : pas de redirection. */
+   si rien ne reste, ce n'est pas une page : pas de redirection.
+
+   ⚠️ Les barres FINALES se retirent par une boucle, jamais par
+   `/\/+$/` : cette expression, non ancrée en tête, est essayée depuis
+   chaque barre d'une longue suite et revient en arrière jusqu'au bout. Sur
+   « /a » + 16 000 barres + « b/ », une seule requête anonyme coûtait
+   150 ms de processeur au lieu d'une (relecture du 3 octobre 2026).
+   L'expression de tête, ancrée, reste linéaire. */
 function redirectionSansBarreFinale(url) {
-  const nettoye = url.pathname.replace(/^[/\\]+/, "").replace(/\/+$/, "");
+  const sansTete = url.pathname.replace(/^[/\\]+/, "");
+  let fin = sansTete.length;
+  while (fin > 0 && sansTete.charCodeAt(fin - 1) === 47) fin--; // 47 = « / »
+  const nettoye = sansTete.slice(0, fin);
   if (!nettoye) return null;
   return url.origin + "/" + nettoye + url.search;
 }
@@ -78,9 +91,21 @@ export function creerSite({ client, contenu: contenuLivre }) {
   const fiche = client && typeof client === "object" ? client : {};
 
   return {
-    async fetch(request, env) {
+    async fetch(request, env, ctx) {
       const url = new URL(request.url);
       const methode = request.method;
+
+      /* L'administration et les photos passent AVANT la logique publique :
+         elles ont leurs propres méthodes (POST, PUT) et leurs propres
+         en-têtes. On aiguille sur l'adresse BRUTE (`url.pathname`, encore
+         encodée) : « /%61dmin » n'est pas l'administration, c'est une page
+         publique qui n'existe pas. Une visite publique, elle, ne touche
+         jamais au Durable Object — seulement à KV. */
+      if (estAdresseAdmin(url.pathname)) {
+        return routerAdmin(request, env, ctx, { client: fiche, contenuLivre, origine: origineDe(fiche, url) });
+      }
+      if (url.pathname.startsWith("/medias/")) return servirPhoto(request, env, ctx);
+
       if (methode !== "GET" && methode !== "HEAD") return reponseMethodeRefusee(fiche);
 
       const origine = origineDe(fiche, url);

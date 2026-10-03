@@ -1,0 +1,190 @@
+/* =========================================================
+   L'éditeur DANS la page — ce que voit l'artisan en plus
+   =========================================================
+
+   Chargée dans le cadre en ÉDITION seulement : l'aperçu et les anciennes
+   versions s'affichent sans elle, exactement comme le site public.
+
+   Deux familles de repères, et deux façons de tenir le contraste sur un
+   fond clair, teinté OU foncé (relecture du 3 octobre 2026 : le bleu seul
+   tombait à 2,1:1 sur une section « Foncé ») :
+
+   — les repères FORTS (focus, section choisie, « le voici ») sont en DEUX
+     tons, le bleu de l'éditeur (#1F5A8A) collé à un anneau blanc. Sur un
+     fond clair, c'est le bleu qui se voit (6,0:1 au moins sur les fonds
+     des trois thèmes) ; sur un fond foncé, c'est le blanc (15,1:1 au
+     moins) ; et l'un contre l'autre, 7,27:1. Aucune couleur seule ne
+     tient 3:1 à la fois sur la mie claire et sur le sombre ;
+   — les INDICES (survol, champ vide, bouton sans lien, section masquée)
+     sont un pointillé dans la couleur du TEXTE de la section
+     (`var(--texte)`, ou `currentColor` pour un champ vide) : la seule
+     couleur dont le contraste avec ce fond-là est garanti par le thème,
+     4,5:1 au moins, mesuré (themes.js, COUPLES).
+
+   Les étiquettes (« Masquée… », « Sans lien… », « Choisir une photo ») sont
+   en blanc sur l'encre de l'éditeur (15,83:1), cerclées de blanc pour se
+   détacher aussi d'une section foncée.
+
+   « Écrire ici… » s'écrit dans la couleur du texte de la section
+   (`currentColor`), en italique : son contraste est celui du thème, mesuré
+   — pas une couleur pâle qui tomberait sous 4,5:1. */
+
+/* ----- Les textes modifiables ----- */
+[data-edit] {
+  cursor: text;
+  border-radius: 2px;
+  outline: 1px dashed transparent;
+  outline-offset: 3px;
+}
+/* Le survol : un indice. Le bleu à 60 % faisait 2,7 à 2,9:1 sur un fond
+   clair et 1,5:1 sur le sombre ; la couleur du texte de la section tient
+   12,6:1 au moins. */
+[data-edit]:hover { outline-color: var(--texte, #1E2328); }
+[data-edit]:focus {
+  outline: 2px solid #1F5A8A;
+  outline-offset: 3px;
+  box-shadow: 0 0 0 5px rgba(255, 255, 255, .85);
+}
+
+/* Un champ vide reste visible et cliquable : sans ce cadre, un titre
+   effacé ne laisserait plus rien à cliquer (Graine de Pensée). */
+[data-edit][data-vide] {
+  min-height: 1.3em;
+  outline: 1px dashed currentColor;
+  outline-offset: 3px;
+}
+span[data-edit][data-vide],
+a[data-edit][data-vide],
+dt[data-edit][data-vide],
+dd[data-edit][data-vide] {
+  display: inline-block;
+  min-width: 8ch;
+}
+[data-edit][data-vide]::before {
+  content: "Écrire ici…";
+  font-style: italic;
+  pointer-events: none;
+}
+/* En train d'écrire : l'invitation s'efface, le cadre reste. */
+[data-edit][data-vide]:focus::before { content: ""; }
+
+/* ----- Les boutons et les liens sans lien -----
+   Un bouton sans destination est dessiné dans l'éditeur, mais le site ne
+   l'affiche pas (outils.js, `bouton()`) : sans marque, l'artisan publiait
+   une section neuve en croyant offrir « Nous appeler » à ses visiteurs
+   (relecture du 3 octobre 2026). `data-sans-lien` est posé par le rendu,
+   en édition seulement — sur les boutons, les liens du menu et le lien du
+   plan.
+   — un BOUTON reçoit une mention COURTE, « Sans lien », à cheval sur son
+     coin haut droit, hors de sa mise en page (dans le bouton, elle passerait
+     pour un mot de son texte). Posée dessous en entier (« … invisible sur le
+     site »), elle mesurait 200 px : les deux boutons d'une accroche neuve,
+     tous deux sans lien, se recouvraient l'un l'autre (contrôle du
+     3 octobre 2026). L'explication complète est dans la fenêtre du lien ;
+   — un LIEN (menu, plan) la reçoit à la suite de son texte : posée dessous,
+     elle chevaucherait le lien suivant dans le menu du téléphone. */
+a[data-sans-lien]:not(:focus) {
+  outline: 2px dashed var(--texte, #1E2328);
+  outline-offset: 4px;
+}
+a[data-sans-lien]::after {
+  content: "Sans lien : invisible sur le site";
+  display: inline-block; margin-left: 8px; vertical-align: middle;
+  padding: 2px 8px; border-radius: 999px;
+  background: #1E2328; color: #FFFFFF;
+  box-shadow: 0 0 0 2px #FFFFFF;
+  font: 600 12px/1.3 system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-style: normal; letter-spacing: normal; text-transform: none; text-decoration: none;
+  white-space: nowrap; pointer-events: none;
+}
+a.bouton[data-sans-lien] { position: relative; }
+a.bouton[data-sans-lien]::after {
+  content: "Sans lien";
+  position: absolute; right: -8px; top: -11px; left: auto; z-index: 5;
+  margin: 0; padding: 1px 7px; font-size: 11px;
+}
+
+/* ----- Les photos ----- */
+[data-edit-img] { cursor: pointer; }
+[data-edit-img]:hover,
+[data-edit-img]:focus-visible {
+  outline: 3px solid #1F5A8A;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 6px rgba(255, 255, 255, .85);
+}
+.image-attente { position: relative; }
+.image-attente::after {
+  content: "Choisir une photo";
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  padding: 8px 14px; border-radius: 999px;
+  background: #1E2328; color: #FFFFFF;
+  font: 600 15px/1.2 system-ui, -apple-system, "Segoe UI", sans-serif;
+  white-space: nowrap; pointer-events: none;
+}
+
+/* ----- Les sections ----- */
+section[data-bloc]:hover { outline: 1px dashed var(--texte, #1E2328); outline-offset: -1px; }
+
+/* La section choisie : un cadre en deux tons, posé PAR-DESSUS la section
+   (pseudo-élément, `pointer-events: none`). Un contour et un halo posés sur
+   la section elle-même ne suffisaient pas : sous une accroche « photo en
+   fond », la photo (z-index -1 dans une section isolée) recouvre l'ombre
+   intérieure, et seul le bleu restait. Le `::after` d'une section
+   appartient à l'éditeur (leçon de Graine de Pensée) ; le `::before` porte
+   la mention d'une section masquée. */
+section[data-ed-choisi] { position: relative; }
+section[data-ed-choisi]:hover { outline: none; }
+section[data-ed-choisi]::after {
+  content: ""; position: absolute; inset: 0; z-index: 4; pointer-events: none;
+  border: 3px solid #1F5A8A;
+  box-shadow: inset 0 0 0 2px #FFFFFF;
+}
+
+/* Une section masquée. Elle reste ici pour être préparée : on y ÉCRIT. Le
+   contenu passait à 45 % d'opacité, et le texte tombait de 14,6 à 2,7:1, le
+   texte secondaire et « Écrire ici… » à 2:1, l'anneau de focus à 2,1:1
+   (relecture du 3 octobre 2026). Désormais :
+   — le texte est seulement désaturé (`grayscale`, qui garde la clarté) :
+     5,3:1 au plus serré sur les trois thèmes, 4,5:1 exigés ;
+   — les PHOTOS, elles, pâlissent (aucun texte dedans) — sauf survolées ou
+     sous le focus, où l'on va justement les changer : l'opacité éteindrait
+     aussi leur anneau ;
+   — un cadre pointillé dans la couleur du texte dit où la section s'arrête,
+     et la mention dit ce que cela veut dire. */
+section[data-masque] { position: relative; }
+section[data-masque],
+section[data-masque]:hover { outline: 2px dashed var(--texte, #1E2328); outline-offset: -2px; }
+section[data-masque] > * { filter: grayscale(.8); }
+section[data-masque] img { opacity: .45; }
+section[data-masque] img:hover,
+section[data-masque] img:focus-visible { opacity: 1; }
+/* Masquer ne change que le BROUILLON : le site garde la section tant que
+   « Publier » n'a pas été cliqué. « Vos visiteurs ne la voient pas » était
+   faux jusque-là (relecture du 3 octobre 2026). Sur deux lignes au besoin :
+   la mention ne doit pas déborder d'un cadre de téléphone. */
+section[data-masque]::before {
+  content: "Masquée — vos visiteurs ne la verront plus une fois publiée";
+  position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 5;
+  width: max-content; max-width: calc(100% - 24px);
+  padding: 6px 14px; border-radius: 18px;
+  background: #1E2328; color: #FFFFFF;
+  box-shadow: 0 0 0 2px #FFFFFF;
+  font: 600 14px/1.3 system-ui, -apple-system, "Segoe UI", sans-serif;
+  text-align: center; pointer-events: none;
+}
+
+/* ----- « Le voici » : l'élément qu'on vient de toucher dans le panneau -----
+   En deux tons, comme le focus : le halo bleu à 25 % qui l'entourait ne
+   faisait que 1,2:1 sur une section foncée. L'anneau blanc remplit l'écart
+   entre l'élément et le contour bleu. */
+[data-ed-eclair] { animation: ed-eclair 1.6s ease-out; }
+@keyframes ed-eclair {
+  0% { outline: 3px solid #1F5A8A; outline-offset: 4px; box-shadow: 0 0 0 4px rgba(255, 255, 255, 1); }
+  100% { outline: 3px solid rgba(31, 90, 138, 0); outline-offset: 4px; box-shadow: 0 0 0 4px rgba(255, 255, 255, 0); }
+}
+/* L'animation ne fait que s'éteindre, jamais clignoter (leçon des saisons
+   de Graine de Pensée). Sans mouvement : un simple cadre, le temps qu'il
+   faut pour le voir. */
+@media (prefers-reduced-motion: reduce) {
+  [data-ed-eclair] { outline: 3px solid #1F5A8A; outline-offset: 4px; box-shadow: 0 0 0 4px #FFFFFF; }
+}

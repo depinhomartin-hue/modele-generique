@@ -4,8 +4,8 @@
   "type": "module",
   "description": "Socle commun des sites vitrines de l'atelier : un moteur, des blocs, des thèmes ; chaque client n'est que des données.",
   "scripts": {
-    "test": "node outils/tester.mjs",
-    "verifier": "node outils/verifier-themes.mjs && node outils/rendre.mjs demo-boulangerie --controle && node outils/tester.mjs",
+    "test": "node outils/tester.mjs && node --disable-warning=ExperimentalWarning outils/tester-admin.mjs && node outils/tester-editeur.mjs",
+    "verifier": "node outils/verifier-themes.mjs && node outils/rendre.mjs demo-boulangerie --controle && node outils/tester.mjs && node --disable-warning=ExperimentalWarning outils/tester-admin.mjs && node outils/tester-editeur.mjs",
     "rendre": "node outils/rendre.mjs",
     "exporter": "node outils/exporter.mjs",
     "dev:demo": "npx wrangler dev -c clients/demo-boulangerie/wrangler.toml --port 8790 --local"

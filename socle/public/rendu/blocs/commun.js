@@ -15,7 +15,26 @@
 import { echapper, texteRiche, ed, afficher, identifiantValide } from "../outils.js";
 import { POLICES } from "../themes.js";
 
-export const FONDS = ["clair", "doux", "sombre"];
+/* Le réglage « fond », commun à toutes les sections. C'est la SEULE liste
+   des fonds : `FONDS`, que lit le rendu, en est tiré. Une liste pour
+   l'éditeur et une autre pour le rendu finiraient par diverger — l'éditeur
+   proposerait un fond que la page ne sait pas dessiner (leçon de Graine de
+   Pensée sur les copies d'une même liste).
+
+   Le premier choix est aussi celui que le rendu emploie quand le bloc n'en
+   dit rien : l'éditeur affiche ce premier choix dans ce cas, les deux
+   disent la même chose. */
+export const REGLAGE_FOND = Object.freeze({
+  cle: "fond",
+  libelle: "Fond de la section",
+  choix: Object.freeze([
+    Object.freeze({ valeur: "clair", libelle: "Clair" }),
+    Object.freeze({ valeur: "doux", libelle: "Teinté" }),
+    Object.freeze({ valeur: "sombre", libelle: "Foncé" })
+  ])
+});
+
+export const FONDS = REGLAGE_FOND.choix.map((c) => c.valeur);
 
 export function chemin(id, ...suite) {
   return ["blocs", id, ...suite].join(".");
@@ -27,21 +46,29 @@ export function ancre(bloc, id) {
   return identifiantValide(bloc.ancre) ? bloc.ancre : id;
 }
 
-export function riche(html) {
-  return texteRiche(html, { polices: POLICES });
+/* Le texte riche du contenu, avec les polices du socle. `options.lien` :
+   voir `texteRiche` (outils.js). */
+export function riche(html, options = {}) {
+  return texteRiche(html, { polices: POLICES, lien: options && options.lien });
 }
 
 /* L'ouverture de la <section> d'un bloc.
 
    `data-bloc` et `data-type` sont posés MÊME hors édition : ils ne
    révèlent rien et permettent au CSS comme au JavaScript visiteur de
-   viser un bloc sans dépendre de sa position. */
+   viser un bloc sans dépendre de sa position.
+
+   `data-masque`, lui, n'existe qu'en ÉDITION : une section masquée n'est
+   jamais rendue sur le site (voir `rendreCorps`, page.js), et l'éditrice
+   doit la voir pour pouvoir la réafficher — grisée, avec sa mention, par
+   la feuille du cadre de l'éditeur. */
 export function ouvrir(bloc, id, ctx, classes = "") {
-  const fond = FONDS.includes(bloc.fond) ? bloc.fond : "clair";
+  const fond = FONDS.includes(bloc.fond) ? bloc.fond : FONDS[0];
   const a = (ctx && ctx.ancre) || ancre(bloc, id);
+  const masque = ctx && ctx.edition && bloc.masque === true ? " data-masque" : "";
   return '<section id="' + echapper(a) + '" class="bloc bloc-' + echapper(bloc.type) +
     " bloc--" + fond + (classes ? " " + classes : "") + '" data-bloc="' + echapper(id) + '" data-type="' +
-    echapper(bloc.type) + '">';
+    echapper(bloc.type) + '"' + masque + ">";
 }
 
 export function fermer() {

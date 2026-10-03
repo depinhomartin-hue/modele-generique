@@ -1,0 +1,505 @@
+/* =========================================================
+   L'éditeur — sa feuille (le document parent, pas la page)
+   =========================================================
+
+   Sobre, lisible, grands boutons (40 px au moins, 44 au doigt), focus
+   visible partout. Pas de mode sombre : la page affichée n'en a pas, et
+   un éditeur sombre autour d'une page claire fatiguerait l'œil.
+
+   Contrastes mesurés le 3 octobre 2026 (WCAG, texte ≥ 4,5:1) :
+     encre sur fond 14,26 · sur surface 15,83 · sur accent doux 13,51
+     encre douce sur fond 5,92 · sur surface 6,57 · sur accent doux 5,60
+     blanc sur accent 7,27 · sur danger 7,21 · sur succès 6,38 · sur encre 15,83
+     accent sur fond 6,55 · sur surface 7,27 · sur accent doux 6,20
+     danger sur fond 6,49 · sur surface 7,21 · sur danger doux 6,13 · sur alerte douce 6,55
+     succès sur fond 5,75 · sur surface 6,38 · sur succès doux 5,51
+   Le bord des champs (#7A7F87) tient 4,03:1 sur la surface et 3,63:1 sur
+   le fond — au-dessus des 3:1 exigés pour le contour d'une commande. Le
+   filet (#D9D6CE) ne porte aucun texte et ne délimite aucune commande
+   seul : c'est de la décoration.
+
+   Un bouton inactif passe à 50 % d'opacité : c'est la convention qui dit
+   « rien à faire ici ». Mais « Publier », quand il porte un ÉTAT
+   (« Publié », « Publication… »), n'est pas un bouton éteint, c'est une
+   information : il garde des couleurs pleines. Relecture du 3 octobre
+   2026 : « Publié » s'affichait à 2,35:1, blanc sur un bleu à moitié
+   transparent. Mesuré depuis :
+     « Publié »       succès sur succès doux 5,51 · bord succès sur surface 6,38
+     « Publication… » encre douce sur surface 6,57 · bord des champs 4,03
+   La barre de mise en forme : blanc sur encre 15,83 ; son anneau de focus
+   blanc sur encre 15,83. Les repères posés DANS la page : cadre.css. */
+
+:root {
+  --ed-fond: #F4F3EF;
+  --ed-surface: #FFFFFF;
+  --ed-encre: #1E2328;
+  --ed-encre-douce: #565E68;
+  --ed-accent: #1F5A8A;
+  --ed-accent-fonce: #174A73;
+  --ed-danger: #A12C2C;
+  --ed-succes: #2E6B3F;
+  --ed-filet: #D9D6CE;
+  --ed-bord-champ: #7A7F87;
+  --ed-accent-doux: #E6EEF5;
+  --ed-danger-doux: #F9E9E9;
+  --ed-succes-doux: #E6F1E9;
+  --ed-alerte-doux: #FDF3E1;
+  --ed-panneau: 340px;
+  --ed-rayon: 8px;
+  color-scheme: light;
+}
+
+[hidden] { display: none !important; }
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  background: var(--ed-fond);
+  color: var(--ed-encre);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  font-size: 16px;
+  line-height: 1.45;
+}
+#editeur { height: 100%; }
+.ed-chargement { padding: 2rem; color: var(--ed-encre-douce); }
+:focus-visible { outline: 3px solid var(--ed-accent); outline-offset: 2px; }
+.ed-cache {
+  position: absolute !important; width: 1px; height: 1px; margin: -1px; padding: 0;
+  overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0;
+}
+h1, h2, h3, h4 { line-height: 1.25; }
+
+/* ----- La charpente ----- */
+.ed-app { display: grid; grid-template-rows: auto minmax(0, 1fr); height: 100vh; height: 100dvh; }
+.ed-corps { display: grid; grid-template-columns: minmax(0, 1fr) var(--ed-panneau); min-height: 0; }
+.ed-zone { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.ed-scene { flex: 1; min-height: 0; display: flex; justify-content: center; overflow: hidden; }
+.ed-cadre { display: block; width: 100%; height: 100%; border: 0; background: #FFFFFF; }
+.ed-cadre.est-en-chargement { visibility: hidden; }
+.ed-scene[data-largeur="tablette"],
+.ed-scene[data-largeur="telephone"] { padding: 16px 12px; }
+.ed-scene[data-largeur="tablette"] .ed-cadre,
+.ed-scene[data-largeur="telephone"] .ed-cadre {
+  border: 1px solid var(--ed-bord-champ); border-radius: 14px;
+  box-shadow: 0 12px 40px -24px rgba(0, 0, 0, .45);
+}
+.ed-scene[data-largeur="tablette"] .ed-cadre { width: min(820px, 100%); }
+.ed-scene[data-largeur="telephone"] .ed-cadre { width: min(390px, 100%); }
+.ed-app[data-mode="apercu"] .ed-corps { grid-template-columns: minmax(0, 1fr); }
+.ed-app[data-mode="apercu"] .ed-panneau,
+.ed-app[data-mode="apercu"] .ed-calque { display: none; }
+
+/* Le bandeau d'aperçu ou de version, au-dessus de la page. */
+.ed-bandeau {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px;
+  padding: 10px 16px; background: var(--ed-alerte-doux); border-bottom: 1px solid var(--ed-filet);
+}
+.ed-bandeau p { margin: 0; }
+
+/* ----- La barre du haut ----- */
+.ed-haut {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; min-height: 60px;
+  padding: 8px 12px; background: var(--ed-surface); border-bottom: 1px solid var(--ed-filet);
+}
+.ed-haut__site { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 0 1 auto; }
+.ed-haut__nom { margin: 0; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 15rem; }
+.ed-haut__page { width: auto; max-width: 14rem; }
+.ed-haut__groupe { display: flex; gap: 4px; }
+.ed-haut__fin { margin-left: auto; display: flex; align-items: center; gap: 10px; min-width: 0; }
+.ed-haut__publier { min-width: 7.5rem; }
+.ed-etat-enregistrement {
+  display: flex; align-items: center; gap: 6px; margin: 0;
+  font-size: 14px; color: var(--ed-encre-douce); line-height: 1.2;
+}
+.ed-etat-enregistrement--ok { color: var(--ed-succes); }
+.ed-etat-enregistrement--alerte { color: var(--ed-danger); font-weight: 600; }
+.ed-roue {
+  flex: none; width: 14px; height: 14px; border-radius: 50%;
+  border: 2px solid currentColor; border-right-color: transparent;
+  animation: ed-tourne 1s linear infinite;
+}
+@keyframes ed-tourne { to { transform: rotate(360deg); } }
+
+/* ----- Les boutons ----- */
+.ed-bouton {
+  position: relative;
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  min-height: 40px; padding: 8px 14px;
+  border: 1px solid var(--ed-bord-champ); border-radius: var(--ed-rayon);
+  background: var(--ed-surface); color: var(--ed-encre);
+  font: inherit; font-weight: 600; line-height: 1.2; text-decoration: none; cursor: pointer;
+}
+.ed-bouton:hover { background: var(--ed-accent-doux); }
+.ed-bouton:disabled { opacity: .5; cursor: not-allowed; }
+.ed-bouton:disabled:hover { background: var(--ed-surface); }
+.ed-bouton--icone { padding: 8px; min-width: 40px; }
+.ed-bouton[aria-pressed="true"] { background: var(--ed-accent-doux); border-color: var(--ed-accent); color: var(--ed-accent); }
+.ed-bouton--principal { background: var(--ed-accent); border-color: var(--ed-accent); color: #FFFFFF; }
+.ed-bouton--principal:hover { background: var(--ed-accent-fonce); }
+.ed-bouton--principal:disabled:hover { background: var(--ed-accent); }
+.ed-bouton--principal:focus-visible,
+.ed-bouton--danger:focus-visible { outline-offset: 3px; }
+.ed-bouton--danger { background: var(--ed-danger); border-color: var(--ed-danger); color: #FFFFFF; }
+.ed-bouton--danger:hover { background: #862424; }
+.ed-bouton--secondaire-danger { color: var(--ed-danger); border-color: var(--ed-danger); }
+.ed-bouton--secondaire-danger:hover { background: var(--ed-danger-doux); }
+.ed-bouton--discret-danger { color: var(--ed-danger); }
+.ed-bouton--discret-danger:hover { background: var(--ed-danger-doux); }
+.ed-bouton--plein-large { width: 100%; }
+.ed-icone { flex: none; }
+/* « Outils » n'ouvre le panneau qu'en tiroir, sous 900 px (voir plus bas).
+   Cette règle DOIT venir après `.ed-bouton` : écrite plus haut, à poids
+   égal, elle perdait contre son `display: inline-flex`, et le bouton
+   s'affichait sur grand écran sans rien faire de visible (relecture du
+   3 octobre 2026). */
+.ed-haut__outils { display: none; }
+/* « Publier » inactif porte un ÉTAT (« Publication… », ou « Publier »
+   pendant qu'on regarde une ancienne version) : texte lisible, pas
+   d'opacité. « Publié » a la couleur d'un succès, et sa coche
+   (barre-haut.js). Les autres boutons inactifs gardent l'opacité : sur
+   « Utiliser cette photo » sans photo choisie, un bouton plein et net
+   passerait pour un bouton qui marche. */
+.ed-haut__publier:disabled,
+.ed-haut__publier:disabled:hover {
+  opacity: 1; background: var(--ed-surface); border-color: var(--ed-bord-champ); color: var(--ed-encre-douce);
+}
+.ed-haut__publier.est-a-jour:disabled,
+.ed-haut__publier.est-a-jour:disabled:hover {
+  background: var(--ed-succes-doux); border-color: var(--ed-succes); color: var(--ed-succes); cursor: default;
+}
+@media (pointer: coarse) {
+  .ed-bouton { min-height: 44px; }
+  .ed-bouton--icone { min-width: 44px; }
+}
+
+/* La bulle d'un bouton à icône : au survol ET au focus (le clavier doit
+   lire ce que la souris lit). */
+[data-bulle]:hover::after,
+[data-bulle]:focus-visible::after {
+  content: attr(data-bulle);
+  position: absolute; top: calc(100% + 6px); left: 50%; transform: translateX(-50%);
+  z-index: 100; padding: 4px 8px; border-radius: 6px;
+  background: var(--ed-encre); color: #FFFFFF;
+  font-size: 13px; font-weight: 600; white-space: nowrap; pointer-events: none;
+}
+
+/* ----- Les champs ----- */
+.ed-champ {
+  width: 100%; min-height: 40px; padding: 8px 10px;
+  border: 1px solid var(--ed-bord-champ); border-radius: 6px;
+  background: var(--ed-surface); color: var(--ed-encre); font: inherit;
+}
+textarea.ed-champ { resize: vertical; }
+.ed-ligne-champ { display: flex; flex-direction: column; gap: 4px; }
+.ed-ligne-champ label { font-weight: 600; }
+.ed-ligne-champ__tete { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.ed-compteur { font-size: 13px; color: var(--ed-encre-douce); font-variant-numeric: tabular-nums; }
+.ed-compteur.est-long { color: var(--ed-danger); font-weight: 700; }
+.ed-case { display: flex; align-items: center; gap: 10px; min-height: 40px; }
+.ed-case input,
+.ed-option__choix input { flex: none; width: 20px; height: 20px; margin: 0; accent-color: var(--ed-accent); }
+.ed-options { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.ed-options legend { font-weight: 600; padding: 0; margin-bottom: 4px; }
+.ed-options--ligne { flex-direction: row; flex-wrap: wrap; }
+.ed-options--compactes { gap: 2px; }
+.ed-option { border: 1px solid var(--ed-filet); border-radius: var(--ed-rayon); }
+.ed-option:has(input:checked) { border-color: var(--ed-accent); }
+.ed-option__choix { display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 6px 10px; border-radius: 6px; cursor: pointer; }
+.ed-option__choix:hover { background: var(--ed-accent-doux); }
+.ed-option__details { display: flex; flex-direction: column; gap: 8px; padding: 2px 12px 12px 40px; }
+.ed-carte-choix { border: 1px solid var(--ed-filet); }
+.ed-carte-choix:has(input:checked) { border-color: var(--ed-accent); background: var(--ed-accent-doux); }
+.ed-aide { margin: 0; font-size: 14px; color: var(--ed-encre-douce); }
+.ed-aide--note { padding: 8px 10px; border-radius: 6px; background: var(--ed-alerte-doux); color: var(--ed-encre); }
+.ed-erreur { margin: 0; padding: 8px 10px; border-radius: 6px; background: var(--ed-danger-doux); color: var(--ed-danger); font-weight: 600; }
+.ed-formulaire { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+.ed-formulaire .ed-champ { align-self: stretch; }
+.ed-outils { display: flex; flex-wrap: wrap; gap: 4px; }
+.ed-outils--colonne { flex-direction: column; align-items: stretch; }
+
+/* ----- Le panneau ----- */
+.ed-panneau {
+  display: flex; flex-direction: column; min-height: 0;
+  background: var(--ed-surface); border-left: 1px solid var(--ed-filet);
+}
+.ed-panneau__tete { display: none; align-items: center; justify-content: space-between; padding: 8px 8px 0 16px; }
+.ed-panneau__marque { margin: 0; font-weight: 700; }
+.ed-onglets { display: flex; gap: 2px; padding: 0 8px; border-bottom: 1px solid var(--ed-filet); }
+.ed-onglet {
+  flex: 1 1 auto; min-height: 44px; padding: 8px 4px;
+  border: 0; border-bottom: 3px solid transparent; background: none;
+  font: inherit; font-size: 15px; font-weight: 600; color: var(--ed-encre-douce); cursor: pointer;
+}
+.ed-onglet:hover { color: var(--ed-encre); }
+.ed-onglet[aria-selected="true"] { color: var(--ed-accent); border-bottom-color: var(--ed-accent); }
+.ed-panneau__corps { flex: 1; min-height: 0; overflow: auto; padding: 12px 16px 48px; }
+.ed-panneau__corps:focus { outline: none; }
+.ed-panneau__titre { margin: 4px 0 4px; font-size: 18px; }
+.ed-groupe { display: flex; flex-direction: column; gap: 10px; padding: 14px 0; border-bottom: 1px solid var(--ed-filet); }
+.ed-groupe:last-child { border-bottom: 0; }
+.ed-groupe__titre { margin: 0; font-size: 16px; }
+.ed-badge {
+  flex: none; padding: 2px 8px; border-radius: 999px;
+  background: var(--ed-alerte-doux); color: var(--ed-encre);
+  font-size: 12px; font-weight: 700; white-space: nowrap;
+}
+.ed-badge--succes { background: var(--ed-succes-doux); color: var(--ed-succes); }
+.ed-badge--neutre { background: var(--ed-accent-doux); color: var(--ed-accent); }
+
+.ed-sections, .ed-elements, .ed-versions, .ed-journal, .ed-photos, .ed-catalogue__liste {
+  list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px;
+}
+.ed-section { border: 1px solid var(--ed-filet); border-radius: var(--ed-rayon); background: var(--ed-surface); }
+.ed-section.est-choisie { border-color: var(--ed-accent); box-shadow: 0 0 0 1px var(--ed-accent); }
+/* Le nom d'abord, en entier ; les quatre boutons passent dessous quand la
+   place manque. Serrés sur une seule ligne, ils ne laissaient au nom que
+   150 px : « Présentati-on », « Prestation-s » (essai du 3 octobre 2026). */
+.ed-section__ligne { display: flex; flex-wrap: wrap; align-items: center; gap: 0 2px; padding: 4px; }
+.ed-section__ligne .ed-outils { flex-wrap: nowrap; gap: 0; margin-left: auto; }
+.ed-section__ligne .ed-bouton,
+.ed-element .ed-outils .ed-bouton { border-color: transparent; }
+.ed-section__nom {
+  flex: 1 1 13rem; min-width: 0; display: flex; align-items: center; gap: 6px; min-height: 40px; padding: 4px 6px;
+  border: 0; border-radius: 6px; background: none; color: var(--ed-encre);
+  font: inherit; font-weight: 600; text-align: left; cursor: pointer;
+}
+.ed-section__nom:hover { background: var(--ed-accent-doux); }
+.ed-section__nom > span { min-width: 0; overflow-wrap: break-word; }
+.ed-section__nom .ed-icone { transition: transform .15s ease; }
+.ed-section__nom[aria-expanded="true"] .ed-icone { transform: rotate(90deg); }
+.ed-section.est-masquee .ed-section__nom > span[data-libelle-bloc] { font-style: italic; color: var(--ed-encre-douce); }
+.ed-section__details { display: flex; flex-direction: column; gap: 14px; padding: 10px 12px 14px; border-top: 1px solid var(--ed-filet); }
+
+.ed-liste { display: flex; flex-direction: column; gap: 8px; }
+.ed-liste__titre { margin: 4px 0 0; font-size: 15px; }
+.ed-element { padding: 2px; border: 1px solid var(--ed-filet); border-radius: 6px; background: var(--ed-surface); }
+.ed-element.est-choisie { border-color: var(--ed-accent); }
+.ed-element__ligne { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; }
+.ed-element__ligne .ed-outils { gap: 0; }
+.ed-element__nom {
+  flex: 1 1 140px; min-width: 0; min-height: 40px; padding: 6px 8px;
+  border: 0; border-radius: 6px; background: none; color: var(--ed-encre);
+  font: inherit; text-align: left; cursor: pointer; overflow-wrap: anywhere;
+}
+button.ed-element__nom:hover { background: var(--ed-accent-doux); }
+.ed-element__nom--fixe { display: flex; flex-direction: column; justify-content: center; cursor: default; }
+.ed-element > .ed-aide { padding: 0 8px 6px; }
+.ed-adresse { font-size: 13px; color: var(--ed-encre-douce); }
+
+.ed-photo { display: grid; grid-template-columns: 56px minmax(0, 1fr) auto; align-items: center; gap: 8px; }
+.ed-photo img, .ed-photo__vide { width: 56px; height: 42px; border-radius: 4px; object-fit: cover; background: var(--ed-fond); }
+.ed-photo__vide { display: grid; place-items: center; color: var(--ed-encre-douce); }
+.ed-photo__nom { font-size: 14px; overflow-wrap: anywhere; }
+.ed-logo img { display: block; max-width: 100%; max-height: 80px; }
+
+.ed-ancre { display: flex; flex-direction: column; gap: 6px; }
+.ed-ancre label { font-weight: 600; }
+.ed-ancre__ligne { display: flex; align-items: center; gap: 6px; }
+.ed-ancre__diese { font-weight: 700; color: var(--ed-encre-douce); }
+
+.ed-ajout-section { display: flex; flex-direction: column; gap: 10px; padding: 14px 0; border-bottom: 1px solid var(--ed-filet); }
+.ed-catalogue { display: flex; flex-direction: column; gap: 8px; }
+.ed-catalogue__choix {
+  width: 100%; min-height: 44px; display: flex; flex-direction: column; gap: 2px; padding: 10px 12px;
+  border: 1px solid var(--ed-filet); border-radius: var(--ed-rayon); background: var(--ed-surface);
+  color: var(--ed-encre); font: inherit; text-align: left; cursor: pointer;
+}
+.ed-catalogue__choix span { font-size: 14px; color: var(--ed-encre-douce); }
+.ed-catalogue__choix:hover { border-color: var(--ed-accent); background: var(--ed-accent-doux); }
+
+.ed-theme { display: flex; flex-direction: column; gap: 6px; }
+.ed-theme__nom { font-weight: 600; }
+.ed-theme__pastilles { display: flex; gap: 4px; }
+.ed-pastille-couleur { width: 22px; height: 22px; border-radius: 50%; border: 1px solid rgba(0, 0, 0, .3); }
+.ed-duo { display: flex; flex-direction: column; }
+.ed-duo__nom { font-size: 22px; line-height: 1.2; }
+.ed-duo__exemple { font-size: 13px; color: var(--ed-encre-douce); }
+
+.ed-version { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 8px; border: 1px solid var(--ed-filet); border-radius: 6px; }
+.ed-version.est-choisie { border-color: var(--ed-accent); background: var(--ed-accent-doux); }
+.ed-version__texte { flex: 1 1 180px; font-size: 15px; }
+.ed-journal { gap: 0; }
+.ed-journal li { padding: 6px 0; border-bottom: 1px solid var(--ed-filet); font-size: 14px; }
+
+/* ----- Les barres flottantes (posées par-dessus la page) ----- */
+.ed-calque { position: fixed; inset: 0; z-index: 30; pointer-events: none; }
+.ed-calque > * { position: fixed; pointer-events: auto; }
+/* La barre de mise en forme et ses menus passent AU-DESSUS des barres de
+   section et d'élément. Sur un téléphone, les deux se posent dans la même
+   bande, et la barre de section, créée après, recouvrait « Taille » : un
+   appui pour agrandir un mot faisait descendre la section (relecture du
+   3 octobre 2026). Un geste de texte ne doit jamais déclencher un geste de
+   structure ; barres.js cache en plus la barre recouverte. */
+.ed-calque > .ed-forme,
+.ed-calque > .ed-menu { z-index: 1; }
+.ed-barre {
+  display: flex; align-items: center; gap: 2px; padding: 4px;
+  background: var(--ed-surface); border: 1px solid var(--ed-bord-champ); border-radius: 10px;
+  box-shadow: 0 8px 24px -10px rgba(0, 0, 0, .4);
+}
+.ed-barre .ed-bouton { border-color: transparent; }
+.ed-barre--section.est-choisie { border-color: var(--ed-accent); }
+.ed-barre__nom {
+  max-width: 13rem; padding: 0 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 13px; font-weight: 700; color: var(--ed-encre-douce);
+}
+@media (max-width: 640px) {
+  /* Sur un téléphone, la barre d'une section doit tenir dans la page :
+     les libellés passent en bulles (ils restent lus par les lecteurs
+     d'écran). */
+  .ed-barre__nom { display: none; }
+  .ed-barre .ed-bouton__texte { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .ed-barre .ed-bouton { padding: 8px; min-width: 40px; }
+}
+.ed-barre, .ed-forme { max-width: calc(100vw - 16px); flex-wrap: wrap; }
+.ed-pastille { background: var(--ed-accent); border-color: var(--ed-accent); color: #FFFFFF; box-shadow: 0 6px 18px -8px rgba(0, 0, 0, .5); }
+.ed-pastille:hover { background: var(--ed-accent-fonce); }
+
+/* La barre de mise en forme : foncée, pour se distinguer des barres de
+   structure. Blanc sur encre 15,83:1 ; blanc sur accent 7,27:1. */
+.ed-forme {
+  display: flex; gap: 2px; padding: 4px;
+  background: var(--ed-encre); border-radius: 10px; box-shadow: 0 8px 24px -10px rgba(0, 0, 0, .5);
+}
+.ed-forme__bouton {
+  position: relative; min-width: 40px; min-height: 40px; padding: 6px 10px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 0; border-radius: 6px; background: transparent; color: #FFFFFF;
+  font: inherit; font-size: 15px; cursor: pointer;
+}
+.ed-forme__bouton:hover { background: #3A4148; }
+.ed-forme__bouton[aria-pressed="true"] { background: var(--ed-accent); }
+.ed-forme__bouton:focus-visible { outline: 3px solid #FFFFFF; outline-offset: -3px; }
+/* « Taille » et « Police » ont une bulle (relecture du 3 octobre 2026) ;
+   menu ouvert, elle passerait sous le menu, à moitié cachée : elle se tait. */
+.ed-forme__bouton[aria-expanded="true"]::after { content: none; }
+.ed-menu {
+  display: flex; flex-direction: column; min-width: 12rem; padding: 4px;
+  background: var(--ed-surface); border: 1px solid var(--ed-bord-champ); border-radius: 8px;
+  box-shadow: 0 10px 30px -12px rgba(0, 0, 0, .45);
+}
+.ed-menu__item {
+  min-height: 40px; padding: 8px 12px; border: 0; border-radius: 6px; background: none;
+  color: var(--ed-encre); font: inherit; text-align: left; cursor: pointer;
+}
+.ed-menu__item:hover, .ed-menu__item:focus-visible { background: var(--ed-accent-doux); }
+.ed-menu__taille--petit { font-size: .85em; }
+.ed-menu__taille--grand { font-size: 1.25em; }
+.ed-menu__taille--tres-grand { font-size: 1.5em; }
+
+/* ----- Les fenêtres ----- */
+.ed-voile {
+  position: fixed; inset: 0; z-index: 60; overflow: auto;
+  display: grid; place-items: center; padding: 16px;
+  background: rgba(30, 35, 40, .5);
+}
+.ed-fenetre {
+  width: min(540px, 100%); max-height: calc(100dvh - 32px);
+  display: flex; flex-direction: column;
+  background: var(--ed-surface); color: var(--ed-encre); border-radius: 12px;
+  box-shadow: 0 24px 64px -24px rgba(0, 0, 0, .55);
+}
+.ed-fenetre--large { width: min(880px, 100%); }
+.ed-fenetre__tete { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 18px 20px 0; }
+.ed-fenetre__titre { margin: 0; font-size: 20px; }
+.ed-fenetre__titre:focus { outline: none; }
+.ed-fenetre__fermer { border-color: transparent; }
+.ed-fenetre__corps { display: flex; flex-direction: column; gap: 12px; padding: 12px 20px 16px; overflow: auto; }
+.ed-fenetre__texte { margin: 0; }
+.ed-fenetre__actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; padding: 12px 20px 18px; border-top: 1px solid var(--ed-filet); }
+.ed-liste-choix { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; }
+.ed-fenetre-lien { display: flex; flex-direction: column; gap: 14px; }
+.ed-fenetre-lien__quoi { margin: 0; font-weight: 600; }
+
+/* La médiathèque. */
+.ed-mediatheque { display: flex; flex-direction: column; gap: 12px; }
+.ed-depot {
+  display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 16px; text-align: center;
+  border: 2px dashed var(--ed-bord-champ); border-radius: 10px; background: var(--ed-fond);
+}
+.ed-depot p { margin: 0; }
+.ed-depot.est-survolee { border-color: var(--ed-accent); background: var(--ed-accent-doux); }
+.ed-envois { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.ed-envoi { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 8px; font-size: 14px; }
+.ed-envoi__nom { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ed-envoi progress { grid-column: 1 / -1; width: 100%; height: 6px; accent-color: var(--ed-accent); }
+.ed-envoi.est-fini .ed-envoi__etat { color: var(--ed-succes); font-weight: 600; }
+.ed-envoi.est-en-erreur .ed-envoi__etat { grid-column: 1 / -1; color: var(--ed-danger); font-weight: 600; }
+.ed-grille-photos { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; }
+.ed-tuile {
+  display: flex; flex-direction: column; gap: 4px; padding: 4px;
+  border: 2px solid transparent; border-radius: 8px; background: var(--ed-surface);
+  color: var(--ed-encre); font: inherit; text-align: left; cursor: pointer;
+}
+.ed-tuile:hover { border-color: var(--ed-bord-champ); }
+.ed-tuile img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 4px; background: var(--ed-fond); }
+.ed-tuile__nom { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ed-tuile[aria-checked="true"] { border-color: var(--ed-accent); background: var(--ed-accent-doux); }
+.ed-mediatheque__outils { display: flex; justify-content: flex-end; }
+
+/* ----- Les messages ----- */
+.ed-notification {
+  position: fixed; left: 16px; bottom: 16px; z-index: 70;
+  max-width: min(480px, calc(100vw - 32px));
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px;
+  padding: 10px 8px 10px 16px;
+  background: var(--ed-surface); border: 1px solid var(--ed-filet); border-left: 6px solid var(--ed-accent);
+  border-radius: 10px; box-shadow: 0 12px 32px -14px rgba(0, 0, 0, .45);
+}
+.ed-notification p { margin: 0; flex: 1 1 220px; }
+.ed-notification--succes { border-left-color: var(--ed-succes); }
+.ed-notification--erreur { border-left-color: var(--ed-danger); }
+.ed-notification__lien { display: inline-flex; align-items: center; gap: 4px; min-height: 40px; color: var(--ed-accent); font-weight: 700; }
+.ed-notification__fermer { border-color: transparent; }
+
+.ed-panne {
+  max-width: 40rem; margin: 4rem auto; padding: 24px;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 12px;
+  background: var(--ed-surface); border: 1px solid var(--ed-filet); border-radius: 12px;
+}
+.ed-panne h1 { margin: 0; font-size: 22px; }
+.ed-panne p { margin: 0; }
+.ed-panne pre { white-space: pre-wrap; font-size: 13px; color: var(--ed-encre-douce); }
+
+/* ----- La barre du haut se resserre avant de déborder -----
+   Sur un écran moyen, le nom du site part d'abord (il est dans l'onglet
+   du navigateur), puis le mot « Aperçu » passe en bulle. */
+@media (max-width: 1199px) {
+  .ed-haut__nom { display: none; }
+}
+@media (max-width: 1099px) {
+  .ed-haut__apercu .ed-bouton__texte { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .ed-haut__apercu { padding: 8px; min-width: 40px; }
+  .ed-etat-enregistrement { max-width: 9rem; font-size: 13px; }
+}
+
+/* ----- Sous 900 px : panneau en tiroir, barre du haut resserrée ----- */
+@media (max-width: 899px) {
+  .ed-corps { grid-template-columns: minmax(0, 1fr); }
+  .ed-panneau {
+    position: fixed; top: 0; right: 0; bottom: 0; z-index: 40;
+    width: min(92vw, 380px); border-left: 1px solid var(--ed-bord-champ);
+    box-shadow: -16px 0 40px -24px rgba(0, 0, 0, .5);
+    transform: translateX(100%); visibility: hidden;
+    transition: transform .2s ease, visibility 0s linear .2s;
+  }
+  body.ed-tiroir-ouvert .ed-panneau { transform: none; visibility: visible; transition: transform .2s ease; }
+  .ed-panneau__tete { display: flex; }
+  .ed-haut { gap: 6px; padding: 6px 8px; }
+  .ed-haut__page { max-width: 9.5rem; }
+  .ed-haut__outils { display: inline-flex; }
+  .ed-etat-enregistrement { font-size: 12px; max-width: 8.5rem; }
+  .ed-haut__publier { min-width: 0; }
+}
+@media (max-width: 640px) {
+  .ed-haut { flex-wrap: wrap; }
+  .ed-haut__largeurs { display: none; }
+  .ed-haut__fin { flex-basis: 100%; justify-content: flex-end; margin-left: 0; }
+  .ed-etat-enregistrement { margin-right: auto; max-width: none; }
+  .ed-fenetre__actions { justify-content: stretch; }
+  .ed-fenetre__actions .ed-bouton { flex: 1 1 auto; }
+}
+
+/* ----- Rien ne bouge pour qui l'a demandé ----- */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+}

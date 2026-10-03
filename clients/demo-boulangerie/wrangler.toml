@@ -1,6 +1,7 @@
 # Le Worker de la démo « boulangerie ».
 # Le socle est commun : seuls `name`, la fiche (client.json) et le contenu
-# (contenu.json) changent d'un client à l'autre.
+# (contenu.json) changent d'un client à l'autre — plus, ici, les noms des
+# espaces de stockage, propres à chaque client.
 name = "vitrine-demo-boulangerie"
 main = "index.js"
 compatibility_date = "2025-09-01"
@@ -11,12 +12,67 @@ compatibility_date = "2025-09-01"
 # son domaine : `workers_dev = false` dès qu'il en a un.
 workers_dev = true
 
-# Les fichiers statiques du socle (CSS, illustrations, modules de rendu),
-# servis par Cloudflare avant le Worker, gratuitement.
+# Les fichiers statiques du socle (CSS, illustrations, modules de rendu,
+# éditeur), servis par Cloudflare avant le Worker, gratuitement.
 [assets]
 directory = "../../socle/public"
 
-# Phase 2 : l'espace de contenu du client (KV), où l'éditeur publie.
-# [[kv_namespaces]]
-# binding = "CONTENU"
-# id = "…"
+# =========================================================================
+# Phase 2 — l'administration.
+#
+# ⚠️ AVANT TOUTE MISE EN LIGNE, trois ressources sont à CRÉER sur le compte
+# Cloudflare de l'atelier, puis à reporter ici. Tant qu'elles n'existent
+# pas, `wrangler dev --local` fonctionne (tout est émulé), mais
+# `wrangler deploy` échoue — ou, pire, publie un site dont l'administration
+# écrit dans le vide.
+# =========================================================================
+
+# 1. Le contenu PUBLIÉ, lu à chaque visite. Créer l'espace avec
+#      npx wrangler kv namespace create CONTENU -c clients/demo-boulangerie/wrangler.toml
+#    et remplacer « a-creer » par l'identifiant affiché. Un identifiant faux
+#    ne se voit pas en local : il ne se voit qu'au déploiement.
+[[kv_namespaces]]
+binding = "CONTENU"
+# Créé le 3 octobre 2026 sur le compte de Martin (« vitrine-demo-boulangerie-contenu »).
+id = "f90a1ceaf6984a17affaa2284c8a0cb8"
+
+# 2. Les photos du client (un espace R2 par client : supprimer un client ne
+#    touche à personne d'autre). Créer avec
+#      npx wrangler r2 bucket create vitrine-demo-boulangerie-medias
+[[r2_buckets]]
+binding = "MEDIAS"
+bucket_name = "vitrine-demo-boulangerie-medias"
+
+# 3. Le Durable Object de l'administration : brouillon, versions, connexions,
+#    limites, journal, index des photos. Rien à créer à la main — le
+#    déploiement le crée. Son schéma vit DANS LE CODE (atelier-coeur.js) :
+#    aucune migration SQL à appliquer client par client.
+#    ⚠️ Le bloc [[migrations]] ci-dessous n'est PAS une migration de données :
+#    il déclare la classe à Cloudflare, une fois pour toutes. Ne jamais
+#    modifier ni retirer « v1 » après un premier déploiement ; une classe
+#    renommée plus tard demandera un « v2 » AJOUTÉ à la suite.
+[[durable_objects.bindings]]
+name = "ATELIER"
+class_name = "Atelier"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Atelier"]
+
+# 4. Les e-mails de connexion (Cloudflare Email Service, offre de l'atelier).
+#    Le domaine d'expédition doit être VÉRIFIÉ chez Cloudflare avant le
+#    premier envoi, et COURRIEL_EXPEDITEUR (plus bas) renseigné. Sinon
+#    personne ne reçoit de lien : chaque échec est inscrit au journal de
+#    l'atelier (« envoi_echoue »), mais rien ne remonte tout seul.
+[[send_email]]
+name = "COURRIEL"
+
+[vars]
+# L'adresse d'expédition des liens de connexion, sur le domaine vérifié.
+# Ex. « connexion@domaine-de-l-atelier.fr ». Vide = aucun e-mail ne part.
+COURRIEL_EXPEDITEUR = ""
+# Les adresses de l'ATELIER autorisées sur tous les sites, séparées par des
+# virgules. Celles du client vont dans client.json (« administration »).
+ADRESSES_ATELIER = ""
+# COURRIEL_JOURNAL ne se pose JAMAIS ici : seulement dans .dev.vars (voir
+# .dev.vars.exemple). Il n'agirait de toute façon que sur localhost.

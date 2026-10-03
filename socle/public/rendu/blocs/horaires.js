@@ -5,8 +5,8 @@
    partout, et la visiteuse doit pouvoir recopier le numéro (même
    principe que le numéro de suivi en clair de Graine de Pensée). */
 
-import { echapper, ed, edDest, edListe, adresseSure, afficher, lienTelephone, estVide, texte } from "../outils.js";
-import { chemin, ouvrir, fermer, tete, riche, liste } from "./commun.js";
+import { echapper, ed, edDest, edListe, adresseSure, afficher, lienTelephone, estVide, texte, sansLien } from "../outils.js";
+import { chemin, ouvrir, fermer, tete, riche, liste, REGLAGE_FOND } from "./commun.js";
 import { libHtml } from "../libelles.js";
 
 function rendre(bloc, id, ctx) {
@@ -22,8 +22,10 @@ function rendre(bloc, id, ctx) {
   if (afficher(ctx, bloc.adresse)) {
     acces += '<p class="horaires__adresse"' + ed(ctx, chemin(id, "adresse"), { riche: true, lignes: true }) + ">" + riche(bloc.adresse) + "</p>";
   }
-  const tel = lienTelephone(bloc.telephone);
   if (afficher(ctx, bloc.telephone)) {
+    // Le lien n'est cherché que s'il sert : sur le site, champ affiché.
+    // (Il l'était à chaque visite, même pour un champ vide ou en édition.)
+    const tel = ctx.edition ? "" : lienTelephone(bloc.telephone);
     acces += '<p class="horaires__contact"><span class="horaires__etiquette">' + libHtml(ctx, "telephone") + "</span>" +
       (tel && !ctx.edition ? '<a href="' + echapper(tel) + '">' + echapper(bloc.telephone) + "</a>"
         : "<span" + ed(ctx, chemin(id, "telephone")) + ">" + echapper(bloc.telephone) + "</span>") + "</p>";
@@ -34,10 +36,14 @@ function rendre(bloc, id, ctx) {
       (mail && !ctx.edition ? '<a href="' + echapper(mail) + '">' + echapper(bloc.email) + "</a>"
         : "<span" + ed(ctx, chemin(id, "email")) + ">" + echapper(bloc.email) + "</span>") + "</p>";
   }
+  // Le plan n'existe sur le site qu'avec une adresse https ; en édition le
+  // lien reste dessiné pour qu'on puisse lui en donner une, et porte alors
+  // `data-sans-lien` (outils.js) : il manque au site.
   const plan = adresseSure(bloc.lienPlan);
-  if (/^https:\/\//i.test(plan) || ctx.edition) {
+  const planSur = /^https:\/\//i.test(plan);
+  if (planSur || ctx.edition) {
     acces += '<p><a class="lien-fleche" href="' + echapper(plan || "#") + '" target="_blank" rel="noopener"' +
-      edDest(ctx, chemin(id, "lienPlan")) + ">" + libHtml(ctx, "voirPlan") + '<span aria-hidden="true"> →</span></a></p>';
+      edDest(ctx, chemin(id, "lienPlan")) + sansLien(ctx, planSur ? plan : "") + ">" + libHtml(ctx, "voirPlan") + '<span aria-hidden="true"> →</span></a></p>';
   }
 
   return ouvrir(bloc, id, ctx) +
@@ -72,4 +78,16 @@ function modele() {
   };
 }
 
-export default { type: "horaires", nom: "Horaires et accès", rendre, modele };
+export default {
+  type: "horaires",
+  nom: "Horaires et accès",
+  description: "Vos jours et heures d'ouverture, votre adresse et le moyen de vous joindre.",
+  reglages: [REGLAGE_FOND],
+  // Les champs du modèle qui sont des TEXTES À REMPLACER (pas des titres
+  // génériques qu'on garde volontiers) : l'éditeur prévient avant de les
+  // publier tels quels (`restesDuModele`, structure.js).
+  exemples: ["jours", "adresse"],
+  listes: { jours: { libelle: "une ligne", max: 14 } },
+  rendre,
+  modele
+};

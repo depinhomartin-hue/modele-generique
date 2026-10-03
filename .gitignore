@@ -4,5 +4,9 @@ node_modules/
 # Secrets locaux : jamais dans le dépôt
 .dev.vars
 .dev.vars.*
+# … sauf le modèle, qui ne contient aucun secret et dit quoi y mettre
+!.dev.vars.exemple
 .DS_Store
 .apercu/
+# Le lien d'accès d'une maquette (contient le secret ACCES_DEMO) : jamais dans le dépôt
+.acces-demo

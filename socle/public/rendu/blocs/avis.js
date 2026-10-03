@@ -11,7 +11,7 @@
    d'écran — cinq étoiles muettes ne disent rien à qui ne les voit pas. */
 
 import { echapper, ed, edListe, afficher, estVide } from "../outils.js";
-import { chemin, ouvrir, fermer, tete, riche, liste } from "./commun.js";
+import { chemin, ouvrir, fermer, tete, riche, liste, REGLAGE_FOND } from "./commun.js";
 
 /* La note : un nombre (ou un texte de chiffres), de 1 à 5. Tout autre
    chose n'affiche pas de note — `Number()` sur un objet piégé lèverait.
@@ -48,6 +48,12 @@ function rendre(bloc, id, ctx) {
     fermer();
 }
 
+/* Un avis neuf naît SANS note (`note: ""`, qu'`etoiles()` ne dessine
+   pas). Relecture du 3 octobre 2026 : le modèle portait `note: 5`, et tout
+   avis ajouté depuis l'éditeur — copie de ce modèle — partait en ligne
+   avec cinq étoiles que le client n'avait peut-être pas données, sans que
+   l'avertissement de publication le signale une fois le texte réécrit.
+   Une note se CHOISIT, elle ne s'hérite pas. */
 function modele() {
   return {
     type: "avis",
@@ -55,9 +61,21 @@ function modele() {
     titre: "Ce que disent nos clients",
     intro: "",
     avis: [
-      { texte: "Recopiez ici un vrai avis laissé par un client.", auteur: "Prénom N.", detail: "", note: 5 }
+      { texte: "Recopiez ici un vrai avis laissé par un client.", auteur: "Prénom N.", detail: "", note: "" }
     ]
   };
 }
 
-export default { type: "avis", nom: "Avis", rendre, modele };
+export default {
+  type: "avis",
+  nom: "Avis",
+  description: "Les vrais avis de vos clients, recopiés tels qu'ils les ont laissés.",
+  reglages: [REGLAGE_FOND],
+  // Les champs du modèle qui sont des TEXTES À REMPLACER (pas des titres
+  // génériques qu'on garde volontiers) : l'éditeur prévient avant de les
+  // publier tels quels (`restesDuModele`, structure.js).
+  exemples: ["avis.*.texte", "avis.*.auteur"],
+  listes: { avis: { libelle: "un avis", max: 12 } },
+  rendre,
+  modele
+};

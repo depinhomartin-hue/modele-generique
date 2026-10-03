@@ -3,7 +3,7 @@
    cadre cliquable en édition). */
 
 import { ed, edListe, image, imageSure, afficher } from "../outils.js";
-import { chemin, ouvrir, fermer, tete, riche, liste } from "./commun.js";
+import { chemin, ouvrir, fermer, tete, riche, liste, REGLAGE_FOND } from "./commun.js";
 
 function rendre(bloc, id, ctx) {
   const photos = liste(bloc.images).map((p, i) => {
@@ -38,4 +38,16 @@ function modele() {
   };
 }
 
-export default { type: "galerie", nom: "Galerie", rendre, modele };
+export default {
+  type: "galerie",
+  nom: "Galerie",
+  description: "Vos photos en grille, chacune avec une légende si vous le souhaitez.",
+  reglages: [REGLAGE_FOND],
+  // Les champs du modèle qui sont des TEXTES À REMPLACER (pas des titres
+  // génériques qu'on garde volontiers) : l'éditeur prévient avant de les
+  // publier tels quels (`restesDuModele`, structure.js).
+  exemples: ["images.*.src"],
+  listes: { images: { libelle: "une photo", max: 24 } },
+  rendre,
+  modele
+};

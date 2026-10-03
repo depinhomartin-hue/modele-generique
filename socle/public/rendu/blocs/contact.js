@@ -6,15 +6,15 @@
    son contenu. */
 
 import { echapper, ed, adresseSure, afficher, lienTelephone, texte } from "../outils.js";
-import { chemin, ouvrir, fermer, tete, riche } from "./commun.js";
+import { chemin, ouvrir, fermer, tete, riche, REGLAGE_FOND } from "./commun.js";
 import { libHtml } from "../libelles.js";
 
 function moyen(ctx, id, champ, cleLibelle, lien) {
   const valeur = ctx.contenuBloc[champ];
   if (!afficher(ctx, valeur)) return "";
-  const vers = lien(valeur);
+  const vers = ctx.edition ? "" : lien(valeur);   // en édition, le texte seul : le lien ne servirait pas
   return '<li class="contact__moyen"><span class="contact__etiquette">' + libHtml(ctx, cleLibelle) + "</span>" +
-    (vers && !ctx.edition
+    (vers
       ? '<a class="contact__valeur" href="' + echapper(vers) + '">' + echapper(valeur) + "</a>"
       : '<span class="contact__valeur"' + ed(ctx, chemin(id, champ)) + ">" + echapper(valeur) + "</span>") +
     "</li>";
@@ -47,4 +47,16 @@ function modele() {
   };
 }
 
-export default { type: "contact", nom: "Contact", rendre, modele };
+export default {
+  type: "contact",
+  nom: "Contact",
+  description: "Quelques mots d'accueil, votre téléphone et votre adresse e-mail.",
+  reglages: [REGLAGE_FOND],
+  // Les champs du modèle qui sont des TEXTES À REMPLACER (pas des titres
+  // génériques qu'on garde volontiers) : l'éditeur prévient avant de les
+  // publier tels quels (`restesDuModele`, structure.js).
+  exemples: [],
+  listes: {},
+  rendre,
+  modele
+};

@@ -6,7 +6,7 @@
    texte qu'on ne voit pas. */
 
 import { ed, edListe, estVide } from "../outils.js";
-import { chemin, ouvrir, fermer, tete, riche, liste } from "./commun.js";
+import { chemin, ouvrir, fermer, tete, riche, liste, REGLAGE_FOND } from "./commun.js";
 
 function rendre(bloc, id, ctx) {
   const questions = liste(bloc.questions).map((q, i) => {
@@ -37,4 +37,16 @@ function modele() {
   };
 }
 
-export default { type: "faq", nom: "Questions fréquentes", rendre, modele };
+export default {
+  type: "faq",
+  nom: "Questions fréquentes",
+  description: "Les questions qu'on vous pose souvent, avec leurs réponses, qui s'ouvrent d'un clic.",
+  reglages: [REGLAGE_FOND],
+  // Les champs du modèle qui sont des TEXTES À REMPLACER (pas des titres
+  // génériques qu'on garde volontiers) : l'éditeur prévient avant de les
+  // publier tels quels (`restesDuModele`, structure.js).
+  exemples: ["questions.*.question", "questions.*.reponse"],
+  listes: { questions: { libelle: "une question", max: 20 } },
+  rendre,
+  modele
+};

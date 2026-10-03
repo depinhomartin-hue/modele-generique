@@ -1,10 +1,15 @@
 /* La présentation : un texte et une photo côte à côte — « Qui sommes-nous »,
    « Notre histoire », « L'atelier ». `inverse` met la photo à gauche ;
    alterner d'un bloc à l'autre évite une page en escalier toujours penché
-   du même côté. */
+   du même côté.
+
+   La photo ne passe à gauche que pour un vrai `true` : c'est la règle par
+   laquelle l'éditeur coche sa case « Photo à gauche ». Un simple test de
+   vérité aurait basculé la photo pour un texte « non » pendant que la case
+   restait décochée — l'écran et la page se seraient contredits. */
 
 import { ed, image, bouton, afficher } from "../outils.js";
-import { chemin, ouvrir, fermer, tete, riche } from "./commun.js";
+import { chemin, ouvrir, fermer, tete, riche, REGLAGE_FOND } from "./commun.js";
 
 function rendre(bloc, id, ctx) {
   const photo = image(ctx, bloc.image, bloc.imageAlt, chemin(id, "image"), "presentation__image");
@@ -12,7 +17,7 @@ function rendre(bloc, id, ctx) {
     ? '<div class="presentation__texte texte-courant"' + ed(ctx, chemin(id, "texte"), { riche: true, lignes: true }) + ">" + riche(bloc.texte) + "</div>"
     : "";
   const appel = bouton(ctx, bloc.bouton, chemin(id, "bouton"));
-  return ouvrir(bloc, id, ctx, bloc.inverse ? "presentation--inverse" : "") +
+  return ouvrir(bloc, id, ctx, bloc.inverse === true ? "presentation--inverse" : "") +
     '<div class="conteneur presentation__grille">' +
       '<div class="presentation__contenu">' + tete(bloc, id, ctx) + texte +
         (appel ? '<div class="presentation__appel">' + appel + "</div>" : "") +
@@ -35,4 +40,16 @@ function modele() {
   };
 }
 
-export default { type: "presentation", nom: "Présentation", rendre, modele };
+export default {
+  type: "presentation",
+  nom: "Présentation",
+  description: "Un texte et une photo côte à côte, pour raconter votre histoire ou votre savoir-faire.",
+  reglages: [REGLAGE_FOND, { cle: "inverse", libelle: "Photo à gauche", type: "case" }],
+  // Les champs du modèle qui sont des TEXTES À REMPLACER (pas des titres
+  // génériques qu'on garde volontiers) : l'éditeur prévient avant de les
+  // publier tels quels (`restesDuModele`, structure.js).
+  exemples: ["titre", "texte", "image"],
+  listes: {},
+  rendre,
+  modele
+};

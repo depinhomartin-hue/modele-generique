@@ -3,7 +3,7 @@
    (« dès 25 € », « sur devis ») : un artisan ne vend pas tout au prix fixe. */
 
 import { echapper, ed, edListe, afficher, estVide } from "../outils.js";
-import { chemin, ouvrir, fermer, tete, riche, liste } from "./commun.js";
+import { chemin, ouvrir, fermer, tete, riche, liste, REGLAGE_FOND } from "./commun.js";
 
 function carte(el, i, id, ctx) {
   if (!el) return "";
@@ -48,4 +48,16 @@ function modele() {
   };
 }
 
-export default { type: "prestations", nom: "Prestations", rendre, modele };
+export default {
+  type: "prestations",
+  nom: "Prestations",
+  description: "Des cartes pour présenter vos services ou vos produits, avec un prix si vous le souhaitez.",
+  reglages: [REGLAGE_FOND],
+  // Les champs du modèle qui sont des TEXTES À REMPLACER (pas des titres
+  // génériques qu'on garde volontiers) : l'éditeur prévient avant de les
+  // publier tels quels (`restesDuModele`, structure.js).
+  exemples: ["elements.*.titre", "elements.*.texte"],
+  listes: { elements: { libelle: "une carte", max: 12 } },
+  rendre,
+  modele
+};

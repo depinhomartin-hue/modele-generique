@@ -85,9 +85,30 @@ export function imageSure(u) {
    lien plutôt que d'appeler un faux numéro (« +33 (0)3… » gardait le 0 ;
    « 03… / 06… » collait deux numéros).
 
-   Le PREMIER numéro seulement ; « (0) » après un indicatif est retiré. */
+   Le PREMIER numéro seulement ; « (0) » après un indicatif est retiré.
+
+   Relecture du 3 octobre 2026 : le découpage entourait le séparateur de
+   deux `\s*`, et celui de tête se rejouait à chaque position d'une suite
+   d'espaces — un temps QUADRATIQUE. Un champ de 20 000 espaces suivis de
+   « x », accepté par le serveur, coûtait près d'une demi-seconde de
+   processeur à CHAQUE visite (le même défaut que `texteRiche` et
+   `texteBrut` ont déjà payé). Deux gardes désormais :
+   - la longueur est bornée AVANT toute expression (les blancs des deux
+     bouts retirés d'abord, en temps linéaire) : un numéro composable
+     tient en quelques dizaines de caractères ; un premier numéro qui ne
+     s'arrête pas dans la borne n'est pas un numéro, il reste sans lien ;
+   - le découpage ne cherche que le séparateur. Les blancs autour n'y
+     servaient à rien : ils sont retirés plus bas avec tout ce qui n'est
+     pas un chiffre. */
+const LONGUEUR_TELEPHONE = 200;
+const SEPARATEUR_TELEPHONE = /[/,;]|\bou\b/i;
+
 export function lienTelephone(numero) {
-  const premier = texte(numero).split(/\s*(?:\/|,|;|\bou\b)\s*/i)[0] || "";
+  const tout = texte(numero).trim();
+  const borne = tout.slice(0, LONGUEUR_TELEPHONE);
+  const coupe = borne.search(SEPARATEUR_TELEPHONE);
+  if (coupe < 0 && tout.length > LONGUEUR_TELEPHONE) return "";
+  const premier = coupe < 0 ? borne : borne.slice(0, coupe);
   const sansZero = premier.replace(/^(\s*\+\d{1,3})\s*\(0\)/, "$1");
   if (/[^\d\s.+()-]/.test(sansZero)) return "";
   const brut = sansZero.replace(/[^\d+]/g, "");
@@ -129,18 +150,52 @@ function echapperTexteRiche(t) {
   return sortie;
 }
 
-function lireAttributs(brut) {
-  const attrs = {};
+/* La LECTURE des balises et de leurs attributs, une seule fois écrite.
+   `texteRiche` s'en sert pour nettoyer ; `structure.js` pour retrouver et
+   réécrire les liens posés dans un texte (renommer une ancre, retirer une
+   page). Deux lectures différentes d'un même texte finiraient par ne pas
+   voir les mêmes liens : l'éditeur en suivrait un que la page n'affiche
+   pas, ou l'inverse (relecture du 3 octobre 2026).
+
+   `motifBalise()` rend une expression NEUVE : elle porte le drapeau `g`,
+   donc une position de lecture, qu'un appelant ne doit pas partager.
+   `attributsDe()` rend chaque attribut avec sa place dans le texte lu
+   (`debut`, `fin`), pour qu'on puisse en remplacer un sans toucher au
+   reste. Un attribut répété : c'est le DERNIER qui compte, comme ici. */
+export function motifBalise() {
+  return /<(\/?)([a-zA-Z][a-zA-Z0-9]*)\b([^<>]*)>/g;
+}
+
+export function attributsDe(brut) {
+  const liste = [];
   const re = /([a-zA-Z_:][-a-zA-Z0-9_:.]*)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g;
   let m;
   while ((m = re.exec(brut))) {
-    attrs[m[1].toLowerCase()] = m[2] ?? m[3] ?? m[4] ?? "";
+    liste.push({ nom: m[1].toLowerCase(), valeur: m[2] ?? m[3] ?? m[4] ?? "", debut: m.index, fin: re.lastIndex });
   }
+  return liste;
+}
+
+function lireAttributs(brut) {
+  const attrs = {};
+  for (const a of attributsDe(brut)) attrs[a.nom] = a.valeur;
   return attrs;
 }
 
+/* L'adresse d'un lien de texte, telle que le nettoyeur la lit : seul
+   « &amp; » est décodé (c'est la forme que `echapper` écrit). */
+export function adresseDeLien(valeur) {
+  return texte(valeur).replace(/&amp;/g, "&");
+}
+
+/* `options.polices` : les polices permises dans `data-police`.
+   `options.lien` : une fonction appliquée à chaque adresse SÛRE d'un lien
+   avant de l'écrire — le pied de page s'en sert pour faire viser l'accueil
+   à ses ancres (voir `rendrePied`, page.js). Ce qu'elle rend repasse par
+   `adresseSure` : elle ne peut pas faire entrer une adresse refusée. */
 export function texteRiche(html, options = {}) {
   const polices = options.polices instanceof Set ? options.polices : null;
+  const transformerLien = typeof options.lien === "function" ? options.lien : null;
   const source = texte(html);
   const pile = [];
   // Combien de balises de chaque nom sont ouvertes : une fermeture
@@ -150,7 +205,7 @@ export function texteRiche(html, options = {}) {
   const ouvertes = new Map();
   let sortie = "";
   let dernier = 0;
-  const re = /<(\/?)([a-zA-Z][a-zA-Z0-9]*)\b([^<>]*)>/g;
+  const re = motifBalise();
   let m;
   while ((m = re.exec(source))) {
     sortie += echapperTexteRiche(source.slice(dernier, m.index));
@@ -176,7 +231,8 @@ export function texteRiche(html, options = {}) {
       if (!aEnPropre(attrs, nomAttr)) continue;
       const v = attrs[nomAttr];
       if (nomAttr === "href") {
-        const sure = adresseSure(v.replace(/&amp;/g, "&"));
+        let sure = adresseSure(adresseDeLien(v));
+        if (sure && transformerLien) sure = adresseSure(transformerLien(sure));
         if (sure) propres += ' href="' + echapper(sure) + '"' + cible(sure);
       } else if (nomAttr === "data-taille") {
         if (TAILLES.has(v)) propres += ' data-taille="' + v + '"';
@@ -276,7 +332,18 @@ export function bouton(ctx, b, chemin, classes = "") {
   if (!ctx.edition && (estVide(libelle) || !vers)) return "";
   const style = b.style === "contour" ? "bouton--contour" : "bouton--plein";
   return '<a class="bouton ' + style + (classes ? " " + classes : "") + '" href="' + echapper(vers || "#") + '"' +
-    cible(vers) + ed(ctx, chemin + ".texte") + edDest(ctx, chemin + ".vers") + ">" + echapper(libelle) + "</a>";
+    cible(vers) + ed(ctx, chemin + ".texte") + edDest(ctx, chemin + ".vers") + sansLien(ctx, vers) + ">" + echapper(libelle) + "</a>";
+}
+
+/* `data-sans-lien` : en ÉDITION seulement, sur un bouton ou un lien qui
+   n'a pas de destination — donc qu'aucune visiteuse ne verra. Relecture du
+   3 octobre 2026 : une section « Appel à l'action » neuve montrait dans
+   l'éditeur un beau bouton « Nous appeler » qui n'existait pas sur le
+   site, sans rien pour le dire. La feuille du cadre de l'éditeur
+   l'habille ; le site public ne reçoit jamais cet attribut.
+   `vers` est l'adresse déjà passée par `destination()` (vide = aucune). */
+export function sansLien(ctx, vers) {
+  return ctx && ctx.edition && !vers ? " data-sans-lien" : "";
 }
 
 /* Une image du contenu. En édition, une image vide garde un cadre

@@ -4,7 +4,7 @@
    avec les sections voisines. */
 
 import { ed, bouton, afficher } from "../outils.js";
-import { chemin, ouvrir, fermer, niveau, riche } from "./commun.js";
+import { chemin, ouvrir, fermer, niveau, riche, REGLAGE_FOND } from "./commun.js";
 
 function rendre(bloc, id, ctx) {
   const h = niveau(ctx);
@@ -30,4 +30,16 @@ function modele() {
   };
 }
 
-export default { type: "appel", nom: "Appel à l'action", rendre, modele };
+export default {
+  type: "appel",
+  nom: "Appel à l'action",
+  description: "Un bandeau court qui invite à un seul geste : appeler, passer vous voir, réserver.",
+  reglages: [REGLAGE_FOND],
+  // Les champs du modèle qui sont des TEXTES À REMPLACER (pas des titres
+  // génériques qu'on garde volontiers) : l'éditeur prévient avant de les
+  // publier tels quels (`restesDuModele`, structure.js).
+  exemples: [],
+  listes: {},
+  rendre,
+  modele
+};

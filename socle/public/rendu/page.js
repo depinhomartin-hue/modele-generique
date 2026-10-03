@@ -13,9 +13,9 @@
    `rendreBloc()` pour redessiner un seul bloc, `rendreCorps()` pour la page
    sans son <head>. */
 
-import { echapper, texteBrut, destination, cible, ed, edDest, edImg, edListe, imageSure, identifiantValide, afficher, estVide } from "./outils.js";
+import { echapper, texteBrut, destination, cible, ed, edDest, edImg, edListe, imageSure, identifiantValide, afficher, estVide, sansLien } from "./outils.js";
 import { themeDe, variablesCss, lienPolices, liensPolicesCitees } from "./themes.js";
-import { BLOCS, typeConnu } from "./registre.js";
+import { BLOCS, typeConnu, valeurReglage } from "./registre.js";
 import { lib, libHtml } from "./libelles.js";
 import { riche, liste, ancre } from "./blocs/commun.js";
 
@@ -39,9 +39,17 @@ export const PAGE_ACCUEIL = "accueil";
    n'est jamais touché : un titre effacé exprès reste effacé.
 
    (Un bloc NEUF, créé depuis l'éditeur, naît au contraire complet, textes
-   d'exemple compris : c'est `nouveauBloc()`, dans registre.js.) */
+   d'exemple compris : c'est `nouveauBloc()`, dans registre.js.)
+
+   Un bloc MASQUÉ porte `masque: true`, et seulement ce `true`-là : toute
+   autre valeur (« true » écrit en texte, 1, false) fait disparaître la clé.
+   Un masquage doit être un geste délibéré de l'éditrice ; une valeur
+   douteuse qui cacherait une section de son site sans qu'elle l'ait voulu
+   serait le pire des deux maux. Et une seule forme écrite donne une seule
+   empreinte pour un même contenu. */
 const REGLAGES = new Set(["disposition", "fond", "style", "inverse"]);
 const aEnPropre = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
+const estMasque = (bloc) => !!bloc && bloc.masque === true;
 
 function vide(valeur, cle) {
   if (REGLAGES.has(cle)) return valeur;
@@ -66,7 +74,31 @@ function completer(bloc) {
     if (!aEnPropre(complet, cle) && cle !== "__proto__" && cle !== "constructor" && cle !== "prototype") complet[cle] = valeur;
   }
   complet.type = bloc.type;
+  if (complet.masque !== true) delete complet.masque;
   return complet;
+}
+
+/* La version du format. `Number()` sur un objet piégé (`{"toString":1}`)
+   LÈVE : le serveur de l'administration appelle `normaliser` sur tout ce
+   que le navigateur envoie, et compte qu'il ne lève jamais. */
+function versionDe(v) {
+  if (typeof v !== "number" && typeof v !== "string") return 1;
+  return Number(v) || 1;
+}
+
+/* Le bouton de l'en-tête garde `masque` seulement s'il vaut `true` — la
+   même règle que pour les blocs, et pour la même raison : une valeur
+   douteuse ne doit pas retirer de son site le bouton de l'éditrice. Une
+   COPIE est faite quand il faut retirer la clé : `normaliser` ne touche
+   jamais à ce qu'on lui passe. `Object.fromEntries` et non
+   `Object.assign` : une clé « __proto__ » venue du JSON y reste une simple
+   donnée au lieu de changer le prototype de la copie. */
+function enteteNormalisee(entete) {
+  if (!aEnPropre(entete, "bouton")) return entete;
+  const b = entete.bouton;
+  if (!b || typeof b !== "object" || Array.isArray(b) || !aEnPropre(b, "masque") || b.masque === true) return entete;
+  const bouton = Object.fromEntries(Object.entries(b).filter(([k]) => k !== "masque"));
+  return Object.fromEntries(Object.entries(entete).map(([k, v]) => [k, k === "bouton" ? bouton : v]));
 }
 
 export function normaliser(brut) {
@@ -96,10 +128,10 @@ export function normaliser(brut) {
   if (!aEnPropre(pages, PAGE_ACCUEIL)) pages[PAGE_ACCUEIL] = { titre: "", description: "", ordre: [] };
 
   return {
-    version: Number(c.version) || 1,
+    version: versionDe(c.version),
     site: objet(c.site),
     theme: objet(c.theme),
-    entete: objet(c.entete),
+    entete: enteteNormalisee(objet(c.entete)),
     pied: objet(c.pied),
     libelles: objet(c.libelles),
     pages,
@@ -112,14 +144,31 @@ export function normaliser(brut) {
    Un bloc qui lève une erreur pendant son rendu ne doit pas emporter la
    page entière : il est remplacé par rien sur le site, et par un cadre
    explicite en édition — un bloc qui disparaît sans un mot est le pire des
-   défauts pour l'éditrice. */
+   défauts pour l'éditrice.
+
+   Un bloc masqué ne sort jamais d'ici hors édition, même appelé seul :
+   l'éditeur redessine un bloc à la fois, et l'aperçu « tel que le verront
+   vos visiteurs » ne doit pas montrer ce qu'ils ne verront pas.
+
+   Les RÉGLAGES (fond, disposition, case) sont résolus ici, par la règle de
+   `valeurReglage` (registre.js) — celle-là même par laquelle l'éditeur les
+   affiche. Le bloc reçoit une copie : le contenu n'est pas touché. */
+function avecReglages(bloc) {
+  const copie = Object.assign({}, bloc);
+  for (const r of BLOCS[bloc.type].reglages) copie[r.cle] = valeurReglage(bloc, r);
+  return copie;
+}
+
 export function rendreBloc(id, bloc, ctx) {
+  const edition = !!(ctx && ctx.edition);
+  if (!edition && estMasque(bloc)) return "";
   try {
-    return BLOCS[bloc.type].rendre(bloc, id, ctx);
+    return BLOCS[bloc.type].rendre(avecReglages(bloc), id, ctx);
   } catch (e) {
     if (typeof console !== "undefined") console.error("Bloc " + id + " :", e);
-    return ctx.edition
-      ? '<section class="bloc bloc--erreur" data-bloc="' + echapper(id) + '"><div class="conteneur"><p>Ce bloc n\'a pas pu s\'afficher.</p></div></section>'
+    return edition
+      ? '<section class="bloc bloc--erreur" data-bloc="' + echapper(id) + '"' + (estMasque(bloc) ? " data-masque" : "") +
+          '><div class="conteneur"><p>Ce bloc n\'a pas pu s\'afficher.</p></div></section>'
       : "";
   }
 }
@@ -145,20 +194,31 @@ function lienNav(l, i, liste_, ctx) {
   if (!ctx.edition && (!vers || estVide(l.texte))) return "";
   const href = versGlobal(vers || "#", ctx);
   return "<li" + edListe(ctx, liste_, i) + '><a href="' + echapper(href) + '"' + cible(vers) +
-    ed(ctx, liste_ + "." + i + ".texte") + edDest(ctx, liste_ + "." + i + ".vers") + ">" + echapper(l.texte) + "</a></li>";
+    ed(ctx, liste_ + "." + i + ".texte") + edDest(ctx, liste_ + "." + i + ".vers") + sansLien(ctx, vers) + ">" + echapper(l.texte) + "</a></li>";
 }
 
 function liensMenu(contenu, ctx) {
   return liste(contenu.entete.liens).map((l, i) => lienNav(l, i, "entete.liens", ctx)).join("");
 }
 
+/* Le bouton de l'en-tête se MASQUE par `entete.bouton.masque: true`, et
+   par rien d'autre. Relecture du 3 octobre 2026 : on le masquait en vidant
+   son texte — le libellé choisi (« Réserver votre kougelhopf ») ne
+   survivait qu'en mémoire et revenait « Nous contacter » après un
+   rechargement ; et en édition, le bouton vidé restait dessiné, plein,
+   avec son invitation « Écrire ici… » : la case paraissait sans effet.
+   Désormais :
+   - masqué : jamais rendu, en édition comme sur le site ;
+   - sur le site : rendu seulement avec un texte ET une destination ;
+   - en édition : rendu même vide ou sans lien, pour qu'on puisse cliquer
+     dedans (`data-sans-lien` dit alors qu'il manque au site). */
 function boutonEntete(contenu, ctx) {
   const b = contenu.entete.bouton;
-  if (!b || typeof b !== "object") return "";
+  if (!b || typeof b !== "object" || b.masque === true) return "";
   const vers = destination(b.vers);
   if (!ctx.edition && (!vers || estVide(b.texte))) return "";
   return '<a class="bouton bouton--plein entete__bouton" href="' + echapper(versGlobal(vers || "#", ctx)) + '"' + cible(vers) +
-    ed(ctx, "entete.bouton.texte") + edDest(ctx, "entete.bouton.vers") + ">" + echapper(b.texte) + "</a>";
+    ed(ctx, "entete.bouton.texte") + edDest(ctx, "entete.bouton.vers") + sansLien(ctx, vers) + ">" + echapper(b.texte) + "</a>";
 }
 
 function rendreEntete(contenu, ctx) {
@@ -183,16 +243,30 @@ function rendreEntete(contenu, ctx) {
     "</div></header>";
 }
 
-/* ----- Pied de page ----- */
+/* ----- Pied de page -----
+
+   Son texte est COMMUN à toutes les pages, comme le menu : un lien
+   « #horaires » posé dedans par la barre de mise en forme vise l'accueil.
+   Relecture du 3 octobre 2026 : il était écrit tel quel, et sur
+   « /nos-tarifs » il visait « /nos-tarifs#horaires », qui n'existe pas —
+   le lien ne marchait que sur l'accueil, là où l'éditrice l'essaie.
+   Hors de l'accueil, il devient donc « /#horaires », par `versGlobal`.
+
+   Sur le SITE seulement : en édition, l'éditeur relit ce texte dans la
+   page pour l'enregistrer (cadre.js, `valeurDuChamp`). Réécrit ici, un mot
+   retouché sur une autre page aurait rangé « /#horaires » à la place de ce
+   que l'éditrice avait choisi. Les clics ne mènent nulle part en édition :
+   la forme écrite n'y change rien. */
 function rendrePied(contenu, client, ctx) {
   const p = contenu.pied;
   const liens = liste(p.liens).map((l, i) => lienNav(l, i, "pied.liens", ctx)).join("");
   const annee = new Date().getFullYear();
+  const texte = ctx.edition ? riche(p.texte) : riche(p.texte, { lien: (vers) => versGlobal(vers, ctx) });
   return '<footer class="pied">' +
     '<div class="conteneur pied__grille">' +
       '<div class="pied__marque">' +
         '<p class="pied__nom"' + ed(ctx, "site.nom") + ">" + echapper(contenu.site.nom) + "</p>" +
-        (afficher(ctx, p.texte) ? '<p class="pied__texte"' + ed(ctx, "pied.texte", { riche: true, lignes: true }) + ">" + riche(p.texte) + "</p>" : "") +
+        (afficher(ctx, p.texte) ? '<p class="pied__texte"' + ed(ctx, "pied.texte", { riche: true, lignes: true }) + ">" + texte + "</p>" : "") +
       "</div>" +
       (liens ? '<ul class="pied__liens" role="list">' + liens + "</ul>" : "") +
     "</div>" +
@@ -212,16 +286,36 @@ function bandeauDemo(client) {
 }
 
 /* ----- Le corps de la page ----- */
+
+/* La page demandée, sinon l'accueil. `aEnPropre` et non `pages[pageId]` :
+   l'éditeur passe l'identifiant de la page qu'il affiche, et « constructor »
+   trouverait une fonction par le prototype (même piège que dans le Worker). */
+function pageDe(contenu, pageId) {
+  return aEnPropre(contenu.pages, pageId) ? contenu.pages[pageId] : contenu.pages[PAGE_ACCUEIL];
+}
+
+/* Les blocs de la page que voit une visiteuse, dans l'ordre. */
+function visibles(contenu, page) {
+  return page.ordre.filter((id) => !estMasque(contenu.blocs[id]));
+}
+
 /* Les ancres de la page, UNIQUES. Deux blocs qui demanderaient la même
    ancre (ou l'ancre réservée du contenu principal) donneraient deux
    éléments de même `id` : les liens du menu viseraient le premier, sans un
    mot. Le premier garde l'ancre demandée, les suivants retombent sur leur
-   identifiant, lui-même unique. */
+   identifiant, lui-même unique.
+
+   Les blocs VISIBLES sont servis d'abord, les masqués ensuite. Un bloc
+   masqué n'a pas d'ancre sur le site ; en édition il en faut une, mais
+   jamais prise à un bloc visible : sinon « #horaires » ne viserait pas la
+   même section dans l'éditeur et sur le site, et un lien qui marche en
+   ligne paraîtrait cassé à l'éditrice (ou l'inverse). */
 const ANCRES_RESERVEES = ["contenu"];
 export function ancresDeLaPage(contenu, page) {
   const prises = new Set(ANCRES_RESERVEES);
   const ancres = {};
-  for (const id of page.ordre) {
+  const masques = page.ordre.filter((id) => estMasque(contenu.blocs[id]));
+  for (const id of visibles(contenu, page).concat(masques)) {
     let a = ancre(contenu.blocs[id], id);
     if (prises.has(a)) a = id;
     let n = 2;
@@ -233,16 +327,28 @@ export function ancresDeLaPage(contenu, page) {
 }
 
 export function rendreCorps({ contenu, client, pageId = PAGE_ACCUEIL, edition = false }) {
-  const page = contenu.pages[pageId] || contenu.pages[PAGE_ACCUEIL];
+  const page = pageDe(contenu, pageId);
   const ctxBase = { edition, contenu, client, pageId };
   const ancres = ancresDeLaPage(contenu, page);
+  /* Le <h1> revient au premier bloc VISIBLE, en édition comme sur le site.
+     Un bloc masqué n'est jamais `premier` : il garde en édition le niveau
+     de titre qu'il aurait sur le site, et le réafficher ne déplace pas le
+     <h1> de la page sous les yeux de l'éditrice.
+     `index` reste la position dans l'ordre du CONTENU, comme les indices
+     des listes : c'est elle que l'éditeur déplace. */
+  const premierVisible = visibles(contenu, page)[0];
   const blocs = page.ordre.map((id, i) =>
-    rendreBloc(id, contenu.blocs[id], Object.assign({}, ctxBase, { premier: i === 0, index: i, ancre: ancres[id] }))
+    edition || !estMasque(contenu.blocs[id])
+      ? rendreBloc(id, contenu.blocs[id], Object.assign({}, ctxBase, { premier: id === premierVisible, index: i, ancre: ancres[id] }))
+      : ""
   ).join("");
-  /* Une page a toujours un <h1>. Le premier bloc le porte s'il s'agit d'une
-     accroche ; sinon la page en ajoute un, réservé aux lecteurs d'écran. */
-  const premier = page.ordre.length ? contenu.blocs[page.ordre[0]] : null;
-  const h1 = premier && !estVide(premier.titre) ? "" : '<h1 class="visuellement-cache">' + echapper(texteBrut(page.titre) || texteBrut(contenu.site.nom)) + "</h1>";
+  /* Une page a toujours un <h1>, et un seul. Le premier bloc visible le
+     porte s'il a un titre ; sinon la page en ajoute un, réservé aux
+     lecteurs d'écran. Une page dont tout est masqué garde donc le sien.
+     En édition, un titre vide reste dessiné (pour qu'on puisse cliquer
+     dedans) : c'est lui le <h1>, la page n'en ajoute pas un second. */
+  const premier = premierVisible ? contenu.blocs[premierVisible] : null;
+  const h1 = premier && (edition || !estVide(premier.titre)) ? "" : '<h1 class="visuellement-cache">' + echapper(texteBrut(page.titre) || texteBrut(contenu.site.nom)) + "</h1>";
   /* La page introuvable (404) n'est pas une page du client : son texte est
      fixe, et elle n'apparaît que lorsqu'on s'est trompé d'adresse. */
   const introuvable = page.interne === "introuvable"
@@ -259,8 +365,11 @@ export function rendreCorps({ contenu, client, pageId = PAGE_ACCUEIL, edition = 
 }
 
 /* ----- Le document complet ----- */
-function premiereImage(contenu, page) {
-  for (const id of page.ordre) {
+/* L'image des réseaux sociaux : la première photo des blocs VISIBLES. Une photo
+   rangée dans une section masquée n'est pas encore publique — elle ne doit
+   pas sortir du site par l'aperçu d'un lien partagé. */
+function premiereImage(contenu, ids) {
+  for (const id of ids) {
     const b = contenu.blocs[id];
     const candidats = [b.image].concat(liste(b.images).map((x) => (x ? x.src : "")));
     for (const src of candidats) {
@@ -272,7 +381,7 @@ function premiereImage(contenu, page) {
 }
 
 export function titreDePage(contenu, pageId) {
-  const page = contenu.pages[pageId] || contenu.pages[PAGE_ACCUEIL];
+  const page = pageDe(contenu, pageId);
   const nom = texteBrut(contenu.site.nom);
   const titre = texteBrut(page.titre);
   if (pageId === PAGE_ACCUEIL) return titre || nom;
@@ -280,22 +389,26 @@ export function titreDePage(contenu, pageId) {
 }
 
 export function descriptionDePage(contenu, pageId) {
-  const page = contenu.pages[pageId] || contenu.pages[PAGE_ACCUEIL];
+  const page = pageDe(contenu, pageId);
   const d = texteBrut(page.description) || texteBrut(contenu.site.description);
   return d.length > 160 ? d.slice(0, 157).replace(/\s+\S*$/, "") + "…" : d;
 }
 
 export function rendrePage({ contenu, client = {}, pageId = PAGE_ACCUEIL, edition = false, origine = "", chemin = "/", indexable = !client.demo }) {
-  const page = contenu.pages[pageId] || contenu.pages[PAGE_ACCUEIL];
+  const page = pageDe(contenu, pageId);
   const resolu = themeDe(contenu);
   const titre = titreDePage(contenu, pageId);
   const description = descriptionDePage(contenu, pageId);
   const url = origine ? origine.replace(/\/$/, "") + chemin : "";
-  const image = premiereImage(contenu, page);
+  const publics = visibles(contenu, page);
+  const image = premiereImage(contenu, publics);
   const imageAbsolue = image && origine && image.startsWith("/") ? origine.replace(/\/$/, "") + image : image;
 
   // Une feuille par type de bloc PRÉSENT sur la page, et seulement celles-là.
-  const types = [...new Set(page.ordre.map((id) => contenu.blocs[id].type))];
+  // Sur le site, un bloc masqué n'est pas présent : sa feuille n'est pas
+  // demandée. En édition il est dessiné, il lui faut la sienne.
+  const rendus = edition ? page.ordre : publics;
+  const types = [...new Set(rendus.map((id) => contenu.blocs[id].type))];
   const feuilles = ["/css/socle.css"].concat(types.map((t) => "/css/blocs/" + t + ".css"))
     .map((h) => '<link rel="stylesheet" href="' + h + '">').join("");
 
