@@ -170,6 +170,27 @@ export function adresseEmail(s) {
   return a.length <= 254 && ADRESSE.test(a) ? a : "";
 }
 
+/* La MÊME règle, sans les minuscules forcées : l'adresse d'une visiteuse,
+   telle qu'elle l'a tapée, quand elle doit entrer dans un en-tête
+   (`Reply-To` de l'alerte, courriel.js). C'est la règle du formulaire de
+   contact (rendu/formulaire.js, même motif, drapeau `i`) : tout ce que le
+   formulaire accepte entre dans l'en-tête.
+
+   Elle remplace la règle de l'adresse d'EXPÉDITION, qui refusait
+   l'apostrophe : « sean.o'brien@exemple.ie », acceptée par le formulaire,
+   partait sans `Reply-To`, et la réponse de l'artisan revenait à l'atelier
+   pendant que l'e-mail lui promettait le contraire (relecture du
+   3 octobre 2026). L'apostrophe est un caractère ordinaire d'une adresse
+   (RFC 5322, « atext ») ; ni blanc, ni saut de ligne, ni chevron, ni
+   guillemet, ni virgule n'entrent ici — rien qui ouvre un autre en-tête
+   ou un second destinataire. → l'adresse, ou "" */
+const ADRESSE_CASSE_LIBRE = new RegExp(ADRESSE.source, "i");
+export function adresseTelleQuelle(s) {
+  if (typeof s !== "string") return "";
+  const a = s.trim();
+  return a.length <= 254 && ADRESSE_CASSE_LIBRE.test(a) ? a : "";
+}
+
 /* ----- Le lien d'accès d'une MAQUETTE -----
 
    Une maquette se montre avant que l'atelier ait un domaine d'expédition

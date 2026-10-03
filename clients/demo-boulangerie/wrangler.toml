@@ -28,9 +28,13 @@ directory = "../../socle/public"
 # =========================================================================
 
 # 1. Le contenu PUBLIÉ, lu à chaque visite. Créer l'espace avec
-#      npx wrangler kv namespace create CONTENU -c clients/demo-boulangerie/wrangler.toml
+#      npx wrangler kv namespace create vitrine-demo-boulangerie-contenu -c clients/demo-boulangerie/wrangler.toml
 #    et remplacer « a-creer » par l'identifiant affiché. Un identifiant faux
-#    ne se voit pas en local : il ne se voit qu'au déploiement.
+#    ne se voit pas en local : il ne se voit qu'au déploiement. Le nom est
+#    PROPRE au client (3 octobre 2026) : wrangler 4 nomme l'espace d'après
+#    ce seul nom, unique sur le compte — « CONTENU » échouait dès le
+#    deuxième client, et recopier l'identifiant d'un autre faisait écrire
+#    deux sites dans le même contenu.
 [[kv_namespaces]]
 binding = "CONTENU"
 # Créé le 3 octobre 2026 sur le compte de Martin (« vitrine-demo-boulangerie-contenu »).

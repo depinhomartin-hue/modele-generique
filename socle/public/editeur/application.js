@@ -20,8 +20,10 @@
 
 import { PAGE_ACCUEIL, normaliser } from "/rendu/page.js";
 import { BLOCS } from "/rendu/registre.js";
-import { nomDuBloc, ecrireChemin, restesDuModele } from "/rendu/structure.js";
+import { nomDuBloc, ecrireChemin } from "/rendu/structure.js";
+import { PAGE_MENTIONS, pageMentionsLegales } from "/rendu/modeles-pages.js";
 import { creerApi } from "./api.js";
+import { creerBoiteMessages, fautRafraichir, RAFRAICHIR_MESSAGES_MS } from "./messages.js";
 import { creerEtat } from "./etat.js";
 import { creerFile, creerStockage, cleCopie, chaineCopie, copiesDuSite, analyserCopie } from "./enregistrement.js";
 import * as Op from "./operations.js";
@@ -78,6 +80,16 @@ export async function demarrer(racine) {
       notifier(message, { genre, duree: genre === "erreur" ? 0 : 9000 });
     }
   };
+  /* Les messages du formulaire de contact (messages.js) : le compte des
+     non-lus vient de l'état du serveur au démarrage, la liste se charge à
+     l'ouverture de l'onglet. Créée AVANT la barre et le panneau, qui
+     affichent sa pastille. */
+  app.boite = creerBoiteMessages({
+    api,
+    // `null` : un serveur qui ne donne pas le compte — la minuterie
+    // chargera la liste pour le connaître.
+    nonLus: depart && depart.messages && typeof depart.messages === "object" ? depart.messages.nonLus : null
+  });
   let quitterSansAvertir = false;
   let publicationEnCours = false;
   let conflitOuvert = false;
@@ -139,6 +151,17 @@ export async function demarrer(racine) {
   app.cadre = creerCadre(app, scene);
   app.forme = creerMiseEnForme(app, calque);
   app.barres = creerBarres(app, calque);
+
+  /* La pastille des messages suit la boîte, sur l'onglet et sur « Outils ».
+     L'onglet ouvert se redessine ; les autres n'ont rien à en savoir. */
+  const majMessages = () => {
+    app.panneau.majPastille(app.boite.nonLus);
+    app.haut.majMessages(app.boite.nonLus);
+    if (app.panneau.onglet() === "messages") app.panneau.reconstruire();
+  };
+  app.boite.ecouter(majMessages);
+  app.panneau.majPastille(app.boite.nonLus);
+  app.haut.majMessages(app.boite.nonLus);
 
   /* ----- Ce que l'état change ----- */
   etat.ecouter((evt) => {
@@ -256,10 +279,16 @@ export async function demarrer(racine) {
       // plus » était faux tant que rien n'était publié — et c'est quand on
       // cache d'urgence un tarif périmé qu'on le croit sur parole.
       if (masque) {
+        // La page des mentions légales qui n'affiche plus rien : elle est
+        // obligatoire. Masquer pour faire taire un « [À compléter » la
+        // vidait sans un mot (relecture du 3 octobre 2026). Le geste reste
+        // permis — « Annuler » le défait.
+        const mentionsVides = pageId === PAGE_MENTIONS && Op.etatPageMentions(etat.contenu).vide;
         notifier("Section masquée dans votre brouillon. Vos visiteurs la voient encore : cliquez sur « Publier » pour la retirer du site." +
           (liens ? " Attention : " + compte(liens, "lien du site mène", "liens du site mènent") + " à cette section (menu, boutons ou textes) ; une fois la page publiée, " +
-            (liens > 1 ? "ils ne mèneront" : "il ne mènera") + " plus nulle part. Pensez à " + (liens > 1 ? "les" : "le") + " changer ou à " + (liens > 1 ? "les" : "le") + " retirer." : ""),
-          { genre: "info", duree: liens ? 0 : 9000 });
+            (liens > 1 ? "ils ne mèneront" : "il ne mènera") + " plus nulle part. Pensez à " + (liens > 1 ? "les" : "le") + " changer ou à " + (liens > 1 ? "les" : "le") + " retirer." : "") +
+          (mentionsVides ? " Attention : la page des mentions légales n'affiche plus rien. Une fois publiée, vos visiteurs n'auront plus accès à vos mentions légales, qui sont obligatoires : remplissez-la plutôt que de la masquer." : ""),
+          { genre: "info", duree: liens || mentionsVides ? 0 : 9000 });
       } else {
         app.signaler("Section affichée dans votre brouillon : vos visiteurs la verront après la publication.", { genre: "info" });
       }
@@ -366,6 +395,28 @@ export async function demarrer(racine) {
       (r.auMenu ? " et ajoutée au menu." : r.menuPlein ? ". Le menu a déjà 8 liens : retirez-en un pour l'y ajouter." : "."), { genre: "succes" });
   };
 
+  /* La page des mentions légales (onglet « Site ») : créée depuis le modèle
+     du rendu (`pageMentionsLegales`, qui n'écrit rien), insérée comme un
+     seul geste — « Annuler » la retire d'un coup —, puis montrée, puisque
+     ses « [À compléter …] » se remplissent en cliquant dessus. */
+  const aLaPage = (c, id) => Object.prototype.hasOwnProperty.call(c.pages, id);
+  app.voirMentionsLegales = () => {
+    if (!aLaPage(etat.contenu, PAGE_MENTIONS)) return;
+    app.allerA(PAGE_MENTIONS);
+    app.panneau.montrer("page");
+    degagerLaPage();
+  };
+  app.ajouterMentionsLegales = () => {
+    if (aLaPage(etat.contenu, PAGE_MENTIONS)) { app.voirMentionsLegales(); return; }
+    const r = app.executer((c) => Op.ajouterPageModele(c, pageMentionsLegales(c)));
+    if (!r) return;
+    etat.allerA(r.pageId);
+    app.panneau.montrer("page");
+    degagerLaPage();
+    app.signaler("La page des mentions légales est créée (adresse : /" + r.pageId + "), avec un lien en bas de chaque page. " +
+      "Cliquez sur chaque « [À compléter …] » pour y écrire vos informations, puis publiez.", { genre: "succes" });
+  };
+
   /* Rend `true` si la page a été supprimée (voir `actionBloc`). */
   app.supprimerPage = async (pageId) => {
     let bilan;
@@ -381,6 +432,9 @@ export async function demarrer(racine) {
         (bilan.vides === 1 ? " Un autre bouton qui y mène n'aura plus de lien : il disparaîtra du site jusqu'à ce que vous lui en donniez un." : "") +
         (bilan.vides > 1 ? " " + bilan.vides + " autres boutons qui y mènent n'auront plus de lien : ils disparaîtront du site jusqu'à ce que vous leur en donniez un." : "") +
         (bilan.textes ? " " + compte(bilan.textes, "lien écrit dans vos textes y mène : ses mots redeviendront", "liens écrits dans vos textes y mènent : leurs mots redeviendront") + " du texte simple." : "") +
+        // Le lien du bas de page ne vit que tant que la page existe (page.js) :
+        // la supprimer le retire de partout, sans autre signe.
+        (pageId === PAGE_MENTIONS ? " Les mentions légales sont obligatoires pour un professionnel : sans cette page, le lien « Mentions légales » disparaît du bas de chaque page." : "") +
         " Le bouton « Annuler », en haut, permet de revenir en arrière.",
       oui: "Supprimer la page", danger: true
     });
@@ -504,26 +558,23 @@ export async function demarrer(racine) {
         app.signaler("Votre site est déjà à jour : il n'y a rien de nouveau à publier.", { genre: "info" });
         return;
       }
-      // Des textes ou des photos d'exemple encore en place : on PRÉVIENT, sans
-      // bloquer (un texte d'exemple peut être gardé exprès). Liste nominative,
-      // pour que le client sache où aller.
-      const restes = restesDuModele(etat.contenu);
-      let avertissement = null;
-      if (restes.length) {
-        const multi = Object.keys(etat.contenu.pages).length > 1;
-        avertissement = h("div", { classe: "ed-aide ed-aide--note" },
-          h("p", null, restes.length > 1
-            ? "Ces sections contiennent encore des textes ou des photos d'exemple. Vos visiteurs les verront tels quels :"
-            : "Cette section contient encore des textes ou des photos d'exemple. Vos visiteurs les verront tels quels :"),
-          h("ul", null, ...restes.map((r) => h("li", null, "« " + r.nom + " »" +
-            (multi ? " (page « " + nomDePage(etat.contenu, r.pageId) + " »)" : "") +
-            (r.texte && r.photo ? " : texte et photo" : r.photo ? " : photo" : " : texte")))));
-      }
+      // Des textes ou des photos d'exemple encore en place, une page des
+      // mentions légales qui n'afficherait rien : on PRÉVIENT, sans bloquer
+      // (un texte d'exemple peut être gardé exprès). Liste nominative, pour
+      // que le client sache où aller. Les phrases viennent d'operations.js
+      // (`avertissementPublication`), testées sous Node.
+      const avis = Op.avertissementPublication(etat.contenu);
+      const avertissement = avis
+        ? h("div", { classe: "ed-aide ed-aide--note" },
+            avis.intro ? h("p", null, avis.intro) : null,
+            avis.lignes.length ? h("ul", null, ...avis.lignes.map((l) => h("li", null, l))) : null,
+            avis.mentions ? h("p", null, avis.mentions) : null)
+        : null;
       const oui = await confirmer({
         titre: "Publier vos modifications ?",
         texte: "Vos modifications seront visibles par tous vos visiteurs d'ici une minute.",
         corps: avertissement,
-        oui: restes.length ? "Publier quand même" : "Publier"
+        oui: avis ? "Publier quand même" : "Publier"
       });
       if (!oui) return;
       publicationEnCours = true;
@@ -796,7 +847,42 @@ export async function demarrer(racine) {
     e.preventDefault();
     e.returnValue = "";
   });
-  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") file.auDepart(); });
+  /* La pastille des messages se remet à jour toute seule : au retour sur
+     l'onglet du navigateur (la page redevient visible, ou la fenêtre
+     reprend la main après une autre application), et toutes les deux
+     minutes au plus tant que l'éditeur est affiché. La décision vit dans
+     messages.js (`fautRafraichir`), testée sous Node.
+     Relecture du 3 octobre 2026 : seul le retour sur l'onglet, après cinq
+     minutes, la rechargeait. Une page restée au premier plan ne reçoit
+     jamais `visibilitychange` : deux heures de travail dans l'éditeur, et
+     le message arrivé entre-temps restait invisible — sans alerte e-mail
+     configurée, la pastille est le seul signal.
+     En silence (`discret`) : une erreur se dira dans l'onglet « Messages »,
+     et un chargement qui ne change rien ne redessine rien. Un onglet caché
+     ne réveille pas le serveur. */
+  const verifierMessages = (retour = false) => {
+    if (fautRafraichir({ visible: document.visibilityState === "visible", age: app.boite.age(), enCours: app.boite.enCours, retour })) {
+      app.boite.charger({ discret: true });
+    }
+  };
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") file.auDepart();
+    else verifierMessages(true);
+  });
+  // La fenêtre quittée pour une autre application, puis retrouvée. Le
+  // focus qui passe dans la page (le cadre) fait aussi perdre le focus à la
+  // fenêtre : `hasFocus()` distingue les deux, sans quoi chaque clic dans
+  // la page puis dans le panneau compterait pour un retour.
+  let fenetreQuittee = false;
+  window.addEventListener("blur", () => setTimeout(() => { if (!document.hasFocus()) fenetreQuittee = true; }, 0));
+  window.addEventListener("focus", () => {
+    if (!fenetreQuittee) return;
+    fenetreQuittee = false;
+    verifierMessages(true);
+  });
+  // Le quart du délai : un rechargement tombe entre deux et deux minutes et
+  // demie après le précédent, jamais plus tôt.
+  setInterval(() => verifierMessages(false), RAFRAICHIR_MESSAGES_MS / 4);
   window.addEventListener("pagehide", () => file.auDepart());
   window.addEventListener("online", () => file.reessayer());
   // Une photo lâchée à côté de la zone prévue ne doit pas remplacer

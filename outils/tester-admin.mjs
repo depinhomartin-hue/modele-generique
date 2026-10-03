@@ -10,14 +10,26 @@
    test qui casse le jour où quelqu'un « simplifie », c'est son rôle. */
 import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
+import { registerHooks } from "node:module";
 import { fileURLToPath } from "node:url";
 import { creerSite } from "../socle/worker.js";
 import { METHODES_RPC, connexionDe } from "../socle/serveur/atelier-coeur.js";
-import { creerEnvironnement, fauxCtx, MINUTE, HEURE, JOUR } from "./simulateurs.mjs";
+import { envoyerAlerteMessage, OBJET_ALERTE } from "../socle/serveur/courriel.js";
+import { LIMITE_CORPS_CONTACT, DESTINATAIRES_ALERTE_MAX } from "../socle/serveur/contact.js";
+import { adresseTelleQuelle } from "../socle/serveur/validation.js";
+import { ERREURS_CONTACT, validerMessage } from "../socle/public/rendu/formulaire.js";
+import { echapper } from "../socle/public/rendu/outils.js";
+import { creerEnvironnement, fauxCtx, fauxCourriel, MINUTE, HEURE, JOUR } from "./simulateurs.mjs";
 
 const racine = fileURLToPath(new URL("..", import.meta.url));
 const lire = (f) => JSON.parse(readFileSync(racine + f, "utf8"));
 const clientDemo = lire("clients/demo-boulangerie/client.json");
+/* La version du socle telle que la fiche de la démo l'annonce : c'est elle
+   que l'administration recopie dans ses adresses (`?v=`) et dans `etat`.
+   Lue, jamais recopiée : écrite « 0.2.0 » en dur, elle a fait échouer ces
+   tests le jour où la démo est passée au socle 0.3.0 (3 octobre 2026). Le
+   contrôle qu'elle vaut bien la version du dépôt est dans tester-outils. */
+const SOCLE = clientDemo.socle;
 const contenuLivre = lire("clients/demo-boulangerie/contenu.json");
 const ORIGINE = "https://demo.test";
 const LOCAL = "http://localhost:8790";
@@ -92,7 +104,7 @@ function formulairePhoto(image, { type = "image/jpeg", nom = "photo.jpg", vignet
 function creerBanc(options = {}) {
   const e = creerEnvironnement(options);
   const client = options.client || clientDemo;
-  let site = creerSite({ client, contenu: contenuLivre });
+  let site = creerSite({ client, contenu: options.contenu || contenuLivre });
   // Un redéploiement : le contenu livré change, le Durable Object et KV restent.
   e.livrer = (contenu) => { site = creerSite({ client, contenu }); };
   // Une requête fabriquée à la main (corps en flux, par exemple).
@@ -184,7 +196,7 @@ await groupe(178, async () => {
     r.entetes.get("cache-control") === "no-store" && r.entetes.get("referrer-policy") === "no-referrer");
   verifier("connexion : la CSP de l'administration à la lettre", r.entetes.get("content-security-policy") === CSP_ADMIN, r.entetes.get("content-security-policy"));
   verifier("connexion : aucun script, aucune ressource externe", !/<script/i.test(r.texte) && !/(src|href)="(https?:)?\/\//i.test(r.texte));
-  verifier("connexion : la feuille de connexion du socle", r.texte.includes('href="/editeur/connexion.css?v=0.2.0"'));
+  verifier("connexion : la feuille de connexion du socle", r.texte.includes('href="/editeur/connexion.css?v=' + SOCLE + '"'));
   verifier("connexion : le Durable Object n'est pas réveillé sans cookie", b.espace.appels === 0, "appels " + b.espace.appels);
 
   const inconnue = await b.appeler("/admin/connexion", { methode: "POST", formulaire: { email: "pirate@example.org" } });
@@ -226,10 +238,10 @@ await groupe(178, async () => {
   const coquille = await b.appeler("/admin", { cookie });
   const attendu = '<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">\n' +
     "<title>Administration · Au Pétrin d&#39;Ernestine</title><meta name=\"robots\" content=\"noindex, nofollow\">\n" +
-    '<link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="stylesheet" href="/editeur/editeur.css?v=0.2.0"></head>\n' +
-    '<body><div id="editeur" data-socle="0.2.0"><p class="ed-chargement">Chargement de l\'éditeur…</p></div>\n' +
+    '<link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="stylesheet" href="/editeur/editeur.css?v=' + SOCLE + '"></head>\n' +
+    '<body><div id="editeur" data-socle="' + SOCLE + '"><p class="ed-chargement">Chargement de l\'éditeur…</p></div>\n' +
     "<noscript><p>L'éditeur a besoin de JavaScript. Le site, lui, n'en a pas besoin.</p></noscript>\n" +
-    '<script type="module" src="/editeur/editeur.js?v=0.2.0"></script></body></html>\n';
+    '<script type="module" src="/editeur/editeur.js?v=' + SOCLE + '"></script></body></html>\n';
   verifier("connecté : /admin sert la coquille exacte de l'éditeur", coquille.statut === 200 && coquille.texte === attendu);
   verifier("connecté : la coquille n'est pas encadrable", coquille.entetes.get("x-frame-options") === "DENY");
   const tete = await b.appeler("/admin", { cookie, methode: "HEAD" });
@@ -580,7 +592,7 @@ await groupe(562, async () => {
   const e = await api(b, cookie, "etat");
   const s = e.json || {};
   verifier("etat : 200", e.statut === 200, "statut " + e.statut);
-  verifier("etat : le site", s.site && s.site.id === "demo-boulangerie" && s.site.demo === true && s.site.socle === "0.2.0" &&
+  verifier("etat : le site", s.site && s.site.id === "demo-boulangerie" && s.site.demo === true && s.site.socle === SOCLE &&
     s.site.adresse === ORIGINE && s.site.domaine === "" && typeof s.site.mentionDemo === "string", JSON.stringify(s.site));
   verifier("etat : l'utilisateur", s.utilisateur && s.utilisateur.email === "essai@example.com");
   verifier("etat : le brouillon naît du contenu livré", s.brouillon && s.brouillon.revision === 1 && s.brouillon.contenu.site.nom === NOM &&
@@ -1302,6 +1314,897 @@ await groupe(1300, async () => {
   verifier("lien de démo : secret retiré → la session du lien ne vaut plus rien", (await api(b, cookie, "etat")).statut === 401);
   // … et la page de connexion par e-mail n'a pas bougé.
   verifier("lien de démo : /admin montre toujours la connexion par e-mail", (await b.appeler("/admin")).texte.includes("adresse e-mail"));
+});
+
+/* =========================================================
+   Le formulaire de contact (socle 0.3.0)
+   =========================================================
+
+   Les tests ne dépendent pas du contenu.json de la démo : ils fabriquent
+   leur propre contenu, où la case « formulaire » est cochée ou non selon
+   le cas éprouvé. */
+const avecFormulaire = (modifier = () => {}) => {
+  const c = copie(contenuLivre);
+  c.blocs["contact-1"].formulaire = true;
+  modifier(c);
+  return c;
+};
+const CONTENU_FORMULAIRE = avecFormulaire();
+const MESSAGE = Object.freeze({
+  page: "accueil", bloc: "contact-1", nom: "Jeanne Martin", email: "jeanne@exemple.fr",
+  telephone: "06 12 34 56 78", message: "Bonjour, je voudrais un kougelhopf pour dimanche."
+});
+const ENVOYE = ORIGINE + "/?contact=envoye&bloc=contact-1#contact";
+const envoyerMessage = (banc, champs = {}, o = {}) =>
+  banc.appeler("/contact", Object.assign({ methode: "POST", formulaire: Object.assign({}, MESSAGE, champs) }, o));
+// Un Durable Object jamais réveillé n'a pas encore de schéma (il naît au
+// premier appel) : ses tables sont alors vides, par définition.
+const lignesSi = (banc, table, requete, ...liaisons) => {
+  const sql = banc.espace.stockage.sql;
+  if (!sql.exec("SELECT 1 AS x FROM sqlite_master WHERE type = 'table' AND name = ?", table).toArray().length) return [];
+  return sql.exec(requete, ...liaisons).toArray();
+};
+const messagesEnBase = (banc) => lignesSi(banc, "messages", "SELECT * FROM messages ORDER BY id");
+const lignesDeSeau = (banc, motif) => lignesSi(banc, "demandes", "SELECT * FROM demandes WHERE seau LIKE ?", motif);
+const journalBrut = (banc, action) => lignesSi(banc, "journal", "SELECT * FROM journal WHERE action = ?", action);
+const clientAvecAdresses = (adresses) => Object.assign(copie(clientDemo), { administration: { adresses } });
+
+/* Un envoi valide : 303, le message en base, et rien d'envoyé tant que le
+   client n'a aucune adresse (la démo, et tout site au socle 0.3.0). */
+await groupe(1310, async () => {
+  const b = creerBanc({ contenu: CONTENU_FORMULAIRE });
+  const r = await envoyerMessage(b);
+  verifier("contact : envoi valide → 303 vers la page, « envoyé », à l'ancre de la section", r.statut === 303 && r.entetes.get("location") === ENVOYE,
+    r.statut + " " + r.entetes.get("location"));
+  const m = messagesEnBase(b);
+  verifier("contact : le message est en base, nettoyé, non lu", m.length === 1 && m[0].nom === "Jeanne Martin" && m[0].email === "jeanne@exemple.fr" &&
+    m[0].telephone === "06 12 34 56 78" && m[0].message === MESSAGE.message && m[0].page === "accueil" && m[0].bloc === "contact-1" &&
+    m[0].lu_le === null && m[0].quand === b.horloge.maintenant(), JSON.stringify(m));
+  // Ni l'adresse IP, ni même son empreinte : rien ne la relisait, et les
+  // mentions légales disent « uniquement pour répondre » (contrôle du
+  // 3 octobre 2026). La limite des envois se compte ailleurs (`demandes`).
+  verifier("contact : aucune trace de la connexion gardée avec le message", m.length === 1 && m[0].connexion === "" &&
+    !JSON.stringify(b.espace.stockage.sql.exec("SELECT * FROM messages").toArray()).includes("203.0.113.7"), JSON.stringify(m.map((x) => x.connexion)));
+  verifier("contact : la limite des envois garde l'empreinte salée, jamais l'adresse IP",
+    lignesDeSeau(b, "message_ip").length === 1 && /^[0-9a-f]{32}$/.test(lignesDeSeau(b, "message_ip")[0].cle) &&
+    !JSON.stringify(b.espace.stockage.sql.exec("SELECT * FROM demandes").toArray()).includes("203.0.113.7"));
+  verifier("contact : sans adresse du client, aucun e-mail ne part (pas même à l'atelier)", b.courriel.envois.length === 0);
+  // La table `messages` est la trace d'un message reçu : le journal n'en
+  // garde rien (relecture du 3 octobre 2026, voir plus bas).
+  verifier("contact : un message reçu n'écrit rien au journal", lignesSi(b, "journal", "SELECT * FROM journal").length === 0,
+    JSON.stringify(lignesSi(b, "journal", "SELECT * FROM journal")));
+  verifier("contact : un compteur par connexion et un pour le site", lignesDeSeau(b, "message_ip").length === 1 && lignesDeSeau(b, "message_site").length === 1);
+
+  const appels = b.espace.appels;
+  const merci = await b.appeler("/?contact=envoye&bloc=contact-1");
+  verifier("contact : la page qui suit dit merci (role=status)", merci.statut === 200 && merci.texte.includes('role="status"') &&
+    merci.texte.includes("Merci, votre message est bien parti."));
+  verifier("contact : cette page ne réveille pas le Durable Object", b.espace.appels === appels);
+  const ailleurs = await b.appeler("/?contact=envoye&bloc=faq-1");
+  const piege = await b.appeler("/?contact=envoye&bloc=constructor");
+  verifier("contact : « envoyé » sur une section qui n'est pas un contact → la page telle quelle", ailleurs.statut === 200 &&
+    !ailleurs.texte.includes("Merci, votre message est bien parti.") && piege.statut === 200 && !piege.texte.includes("Merci, votre message"));
+  const normale = await b.appeler("/");
+  verifier("contact : sans paramètre, le formulaire est là, vers /contact", normale.texte.includes('method="post" action="/contact') && !normale.texte.includes("Merci, votre message"));
+
+  const get = await b.appeler("/contact");
+  verifier("GET /contact → 303 vers l'accueil", get.statut === 303 && get.entetes.get("location") === "/", get.statut + " " + get.entetes.get("location"));
+  const put = await b.appeler("/contact", { methode: "PUT" });
+  verifier("PUT /contact → 405, Allow dit GET, HEAD, POST", put.statut === 405 && put.entetes.get("allow") === "GET, HEAD, POST");
+  verifier("le site public garde son 405 ailleurs", (await b.appeler("/", { methode: "POST", formulaire: MESSAGE })).statut === 405);
+  // Une page « contact » du client garde son adresse : seul le POST est au formulaire.
+  const p = creerBanc({ contenu: avecFormulaire((c) => { c.pages.contact = { titre: "Nous trouver", ordre: ["horaires-1"] }; }) });
+  const page = await p.appeler("/contact");
+  verifier("GET /contact quand le client a une page « contact » : la page s'affiche", page.statut === 200 && page.texte.includes("<title>Nous trouver"));
+  verifier("… et POST /contact reste le formulaire", (await envoyerMessage(p)).statut === 303 && messagesEnBase(p).length === 1);
+});
+
+/* Une erreur : 400 AVEC la page, les erreurs et ce que la personne avait
+   écrit — sans JavaScript, c'est ce qui lui évite de tout retaper. */
+await groupe(1360, async () => {
+  const b = creerBanc({ contenu: CONTENU_FORMULAIRE });
+  const saisie = { nom: "", email: "jeanne@", telephone: "<b>12</b>", message: 'Bref "<i>' };
+  const r = await envoyerMessage(b, saisie);
+  verifier("contact en erreur → 400", r.statut === 400, "statut " + r.statut);
+  verifier("contact en erreur : la page du site, avec son formulaire", r.texte.includes('<form class="contact__formulaire"') && r.texte.includes("Au Pétrin"));
+  verifier("contact en erreur : chaque message d'erreur, en clair", ["nom", "email", "telephone", "message"].every((c) => r.texte.includes(echapper(ERREURS_CONTACT[c]))));
+  verifier("contact en erreur : ce qui avait été écrit revient, échappé", r.texte.includes('value="jeanne@"') && r.texte.includes(echapper(saisie.message)) &&
+    r.texte.includes(echapper(saisie.telephone)) && !r.texte.includes("<b>12</b>") && !r.texte.includes("<i>"));
+  verifier("contact en erreur : champs marqués aria-invalid", (r.texte.match(/aria-invalid="true"/g) || []).length === 4);
+  verifier("contact en erreur : page jamais indexée", /noindex/.test(r.entetes.get("x-robots-tag") || ""));
+  verifier("contact en erreur : rien en base, aucun compteur, rien au journal", messagesEnBase(b).length === 0 &&
+    lignesDeSeau(b, "message%").length === 0 && journalBrut(b, "message_recu").length === 0);
+  const unSeul = await envoyerMessage(b, { message: "court" });
+  verifier("contact : un seul champ fautif → seul lui est marqué", unSeul.statut === 400 && (unSeul.texte.match(/aria-invalid="true"/g) || []).length === 1 &&
+    unSeul.texte.includes('value="Jeanne Martin"'));
+});
+
+/* Le piège à robots : rempli, la MÊME réponse qu'un envoi réussi, et rien
+   n'est gardé. */
+await groupe(1385, async () => {
+  const b = creerBanc({ contenu: CONTENU_FORMULAIRE });
+  const r = await envoyerMessage(b, { site_web: "https://spam.example" });
+  verifier("piège rempli → 303 « envoyé », comme un vrai envoi", r.statut === 303 && r.entetes.get("location") === ENVOYE);
+  verifier("piège rempli : rien en base, aucun compteur, rien au journal, le Durable Object n'est pas appelé",
+    messagesEnBase(b).length === 0 && lignesDeSeau(b, "message%").length === 0 && journalBrut(b, "message_recu").length === 0 &&
+    b.espace.parMethode.deposerMessage === 0);
+  const blanc = await envoyerMessage(b, { site_web: "   " });
+  verifier("piège laissé blanc (des espaces) : le message passe", blanc.statut === 303 && messagesEnBase(b).length === 1);
+});
+
+/* L'origine, le format, la taille. */
+await groupe(1398, async () => {
+  const b = creerBanc({ contenu: CONTENU_FORMULAIRE });
+  const pirate = await envoyerMessage(b, {}, { origine: "https://pirate.example" });
+  verifier("contact depuis un autre site → 403, une page lisible", pirate.statut === 403 && pirate.texte.includes("pas pu partir") &&
+    /noindex/.test(pirate.entetes.get("x-robots-tag") || ""));
+  const aucune = await envoyerMessage(b, {}, { origine: null });
+  verifier("contact sans Origin ni Sec-Fetch-Site → 403", aucune.statut === 403);
+  const croise = await envoyerMessage(b, {}, { origine: null, entetes: { "sec-fetch-site": "cross-site" } });
+  verifier("contact : Sec-Fetch-Site cross-site → 403", croise.statut === 403);
+  verifier("refus d'origine : rien en base, le Durable Object n'est pas appelé", messagesEnBase(b).length === 0 && b.espace.parMethode.deposerMessage === 0);
+  const nulle = await envoyerMessage(b, {}, { origine: null, entetes: { origin: "null", "sec-fetch-site": "same-origin" } });
+  verifier("contact : Origin null + Sec-Fetch-Site same-origin → accepté", nulle.statut === 303);
+  const sansOrigin = await envoyerMessage(b, {}, { origine: null, entetes: { "sec-fetch-site": "same-origin" }, ip: b.ipNeuve() });
+  verifier("contact : sans Origin, Sec-Fetch-Site same-origin → accepté", sansOrigin.statut === 303 && messagesEnBase(b).length === 2);
+  const json = await b.appeler("/contact", { methode: "POST", json: MESSAGE });
+  verifier("contact envoyé en JSON → 415", json.statut === 415);
+  const appels = b.espace.appels;
+  const lourd = await envoyerMessage(b, { message: "x".repeat(LIMITE_CORPS_CONTACT) });
+  verifier("contact au-delà de la borne du corps → 413, sans réveiller le Durable Object", lourd.statut === 413 && b.espace.appels === appels && messagesEnBase(b).length === 2);
+});
+
+/* Les limites : 5 messages par heure et par connexion, 100 par 24 heures
+   pour le site. Un refus n'écrit rien et garde ce qui avait été écrit. */
+await groupe(1420, async () => {
+  const b = creerBanc({ contenu: CONTENU_FORMULAIRE });
+  const IP = "198.51.100.30";
+  for (let i = 1; i <= 5; i++) await envoyerMessage(b, { message: "Message numéro " + i + " de la même connexion." }, { ip: IP });
+  const lignes = lignesDeSeau(b, "message%").length;
+  const sixieme = await envoyerMessage(b, { message: "Le sixième message en une heure." }, { ip: IP });
+  verifier("limite : 5 messages par heure depuis une connexion, le 6e → 429", messagesEnBase(b).length === 5 && sixieme.statut === 429, "statut " + sixieme.statut);
+  verifier("limite : le 6e voit la page, l'erreur en tête (role=alert) et son texte", sixieme.texte.includes('role="alert"') &&
+    sixieme.texte.includes(echapper(ERREURS_CONTACT.limite)) && sixieme.texte.includes("Le sixième message en une heure."));
+  verifier("limite : un refus n'écrit aucun compteur", lignesDeSeau(b, "message%").length === lignes);
+  verifier("limite : une autre connexion passe", (await envoyerMessage(b, {}, { ip: "198.51.100.31" })).statut === 303);
+  b.horloge.avancer(HEURE);
+  verifier("limite : une heure plus tard, la connexion repasse", (await envoyerMessage(b, {}, { ip: IP })).statut === 303 && messagesEnBase(b).length === 7);
+
+  const s = creerBanc({ contenu: CONTENU_FORMULAIRE });
+  for (let i = 0; i < 100; i++) await envoyerMessage(s, {}, { ip: s.ipNeuve() });
+  verifier("limite du site : 100 messages en 24 heures", messagesEnBase(s).length === 100, messagesEnBase(s).length + " messages");
+  const centUnieme = await envoyerMessage(s, {}, { ip: s.ipNeuve() });
+  verifier("limite du site : le 101e → 429, même d'une connexion neuve", centUnieme.statut === 429 && messagesEnBase(s).length === 100);
+  s.horloge.avancer(JOUR);
+  verifier("limite du site : le lendemain, un message repasse", (await envoyerMessage(s, {}, { ip: s.ipNeuve() })).statut === 303 && messagesEnBase(s).length === 101);
+});
+
+/* Une section qui n'accepte pas de message → 404. */
+await groupe(1446, async () => {
+  const cas = [
+    ["page inconnue", CONTENU_FORMULAIRE, { page: "tarifs" }],
+    ["page « constructor »", CONTENU_FORMULAIRE, { page: "constructor" }],
+    ["section absente de la page", CONTENU_FORMULAIRE, { bloc: "contact-2" }],
+    ["section qui n'est pas un contact", CONTENU_FORMULAIRE, { bloc: "faq-1" }],
+    ["section sans formulaire", avecFormulaire((c) => { c.blocs["contact-1"].formulaire = false; }), {}],
+    ["formulaire coché en texte (« true »)", avecFormulaire((c) => { c.blocs["contact-1"].formulaire = "true"; }), {}],
+    ["section masquée", avecFormulaire((c) => { c.blocs["contact-1"].masque = true; }), {}],
+    ["section retirée de la page", avecFormulaire((c) => { c.pages.accueil.ordre = c.pages.accueil.ordre.filter((id) => id !== "contact-1"); }), {}],
+    ["champs page et bloc absents", CONTENU_FORMULAIRE, { page: "", bloc: "" }]
+  ];
+  for (const [nom, contenu, champs] of cas) {
+    const b = creerBanc({ contenu });
+    const r = await envoyerMessage(b, champs);
+    verifier("contact, " + nom + " → 404, rien en base", r.statut === 404 && messagesEnBase(b).length === 0 && b.espace.parMethode.deposerMessage === 0,
+      "statut " + r.statut);
+  }
+  const b = creerBanc({ contenu: CONTENU_FORMULAIRE });
+  const r = await envoyerMessage(b, { bloc: "faq-1" });
+  verifier("contact 404 : la page d'erreur garde l'habit du site, non indexée", r.texte.includes("Cette page n'existe pas.") &&
+    r.texte.includes('class="entete"') && /noindex/.test(r.entetes.get("x-robots-tag") || ""));
+  // Le contenu PUBLIÉ fait foi, pas le contenu livré.
+  b.kv.donnees.set("publie", JSON.stringify(avecFormulaire((c) => { c.blocs["contact-1"].formulaire = false; })));
+  verifier("contact : formulaire décoché dans le contenu PUBLIÉ → 404", (await envoyerMessage(b)).statut === 404);
+});
+
+/* Sans Durable Object, ou s'il ne répond pas : 503 lisible, rien de perdu
+   de ce qui avait été écrit. */
+await groupe(1475, async () => {
+  const b = creerBanc({ contenu: CONTENU_FORMULAIRE, sansAtelier: true });
+  const consoleAvant = journalConsole.length;
+  const r = await envoyerMessage(b, { message: "Mon message ne doit pas se perdre, même en panne." });
+  // Une liaison absente est un état de la configuration, pas une panne : rien à signaler.
+  verifier("contact sans ATELIER : aucune erreur dans la console", !journalConsole.slice(consoleAvant).some((l) => l.startsWith("error")),
+    journalConsole.slice(consoleAvant).join(" | "));
+  verifier("contact sans ATELIER → 503 avec la page", r.statut === 503 && r.texte.includes('<form class="contact__formulaire"'), "statut " + r.statut);
+  verifier("contact sans ATELIER : « n'a pas pu partir », en tête", r.texte.includes(echapper(ERREURS_CONTACT.indisponible)) && r.texte.includes('role="alert"'));
+  verifier("contact sans ATELIER : ce qui avait été écrit revient", r.texte.includes("Mon message ne doit pas se perdre, même en panne.") &&
+    r.texte.includes('value="jeanne@exemple.fr"'));
+  verifier("contact sans ATELIER : aucun e-mail ne part", b.courriel.envois.length === 0);
+
+  const p = creerBanc({ contenu: CONTENU_FORMULAIRE });
+  p.env.ATELIER = { idFromName: (n) => ({ toString: () => n }), get: () => ({ deposerMessage: async () => { throw new Error("Durable Object en panne (simulée)"); } }) };
+  const panne = await envoyerMessage(p);
+  verifier("contact, Durable Object en panne → 503 lisible, valeurs gardées", panne.statut === 503 &&
+    panne.texte.includes(echapper(ERREURS_CONTACT.indisponible)) && panne.texte.includes(MESSAGE.message));
+});
+
+/* Un an au plus : purgé au dépôt suivant ET avant toute lecture de
+   l'administration. */
+await groupe(1493, async () => {
+  const b = creerBanc({ contenu: CONTENU_FORMULAIRE });
+  await envoyerMessage(b, { message: "Le tout premier message, d'il y a un an." });
+  b.horloge.avancer(200 * JOUR);
+  await envoyerMessage(b, { message: "Un message plus récent, de deux cents jours." });
+  b.horloge.avancer(165 * JOUR - MINUTE);
+  const cookie = await seConnecter(b);
+  const avant = (await api(b, cookie, "messages")).json.messages;
+  verifier("purge : à 364 jours et 23 h 59, le premier message est encore là", avant.length === 2);
+  b.horloge.avancer(2 * MINUTE);
+  const apres = (await api(b, cookie, "messages")).json.messages;
+  verifier("purge : passé un an, il a disparu de l'onglet Messages", apres.length === 1 && apres[0].message.startsWith("Un message plus récent"));
+  verifier("purge : … et de la base", messagesEnBase(b).length === 1);
+  verifier("purge : … et de l'export", (await api(b, cookie, "export")).json.messages.length === 1);
+
+  const d = creerBanc({ contenu: CONTENU_FORMULAIRE });
+  await envoyerMessage(d);
+  d.horloge.avancer(365 * JOUR + MINUTE);
+  await envoyerMessage(d, { message: "Un an plus tard, sans que personne n'ait ouvert l'administration." }, { ip: d.ipNeuve() });
+  verifier("purge : un nouveau message suffit à retirer celui de plus d'un an", messagesEnBase(d).length === 1 && messagesEnBase(d)[0].id === 2);
+  const plan = d.espace.stockage.db.prepare("EXPLAIN QUERY PLAN DELETE FROM messages WHERE quand <= ?").all(0).map((x) => x.detail).join(" ; ");
+  verifier("purge : elle suit un index (pas de parcours de la table)", !/\bSCAN messages\b/.test(plan), plan);
+});
+
+/* L'API de l'onglet Messages. */
+await groupe(1520, async () => {
+  const b = creerBanc({ contenu: CONTENU_FORMULAIRE });
+  for (let i = 1; i <= 3; i++) {
+    await envoyerMessage(b, { nom: "Personne " + i, message: "Message numéro " + i + ", assez long.", telephone: i === 2 ? "" : MESSAGE.telephone }, { ip: b.ipNeuve() });
+    b.horloge.avancer(MINUTE);
+  }
+  const sans = await b.appeler("/admin/api/messages");
+  verifier("messages sans session → 401", sans.statut === 401 && sans.json.erreur === "non_connecte");
+  verifier("lu sans session → 401", (await b.appeler("/admin/api/messages/1/lu", { methode: "POST", json: { lu: true } })).statut === 401);
+  verifier("supprimer sans session → 401", (await b.appeler("/admin/api/messages/1/supprimer", { methode: "POST" })).statut === 401);
+
+  const cookie = await seConnecter(b);
+  const liste = await api(b, cookie, "messages");
+  const m = liste.json.messages;
+  verifier("messages : 200, du plus récent au plus ancien", liste.statut === 200 && m.length === 3 && m.map((x) => x.id).join(",") === "3,2,1");
+  verifier("messages : la forme du contrat, rien de plus (ni bloc, ni connexion)", m.every((x) =>
+    Object.keys(x).join(",") === "id,quand,page,nom,email,telephone,message,lu" && x.lu === false && typeof x.quand === "number" && x.page === "accueil"),
+    JSON.stringify(m[0]));
+  verifier("messages : le téléphone facultatif reste vide", m[1].telephone === "" && m[1].nom === "Personne 2");
+  verifier("etat : messages.nonLus", (await api(b, cookie, "etat")).json.messages.nonLus === 3);
+
+  const lu = await api(b, cookie, "messages/2/lu", { methode: "POST", json: { lu: true } });
+  verifier("marquer lu → 200 { ok: true }", lu.statut === 200 && lu.json.ok === true);
+  const luLe = () => b.espace.stockage.sql.exec("SELECT lu_le FROM messages WHERE id = 2").one().lu_le;
+  const premiereLecture = luLe();
+  verifier("marquer lu : la liste et le compte le disent", (await api(b, cookie, "messages")).json.messages.find((x) => x.id === 2).lu === true &&
+    (await api(b, cookie, "etat")).json.messages.nonLus === 2 && premiereLecture === b.horloge.maintenant());
+  b.horloge.avancer(HEURE);
+  await api(b, cookie, "messages/2/lu", { methode: "POST", json: { lu: true } });
+  verifier("marquer lu deux fois : la date de la PREMIÈRE lecture reste", luLe() === premiereLecture);
+  await api(b, cookie, "messages/2/lu", { methode: "POST", json: { lu: false } });
+  verifier("marquer non lu : il redevient non lu", luLe() === null && (await api(b, cookie, "etat")).json.messages.nonLus === 3);
+  const texte = await api(b, cookie, "messages/2/lu", { methode: "POST", json: { lu: "true" } });
+  verifier("lu en texte (« true ») → 400, rien ne change", texte.statut === 400 && texte.json.erreur === "requete_invalide" && luLe() === null);
+  verifier("lu sans corps JSON → 415", (await api(b, cookie, "messages/2/lu", { methode: "POST", formulaire: { lu: "true" } })).statut === 415);
+  const inconnu = await api(b, cookie, "messages/99/lu", { methode: "POST", json: { lu: true } });
+  verifier("lu d'un message inconnu → 404 « Ce message n'existe plus. »", inconnu.statut === 404 && inconnu.json.message === "Ce message n'existe plus.");
+
+  const pirate = await api(b, cookie, "messages/1/supprimer", { methode: "POST", origine: "https://pirate.example" });
+  verifier("supprimer depuis un autre site → 403, rien n'est supprimé", pirate.statut === 403 && messagesEnBase(b).length === 3);
+  const sup = await api(b, cookie, "messages/1/supprimer", { methode: "POST" });
+  verifier("supprimer → 200 { ok: true }, définitif", sup.statut === 200 && sup.json.ok === true && messagesEnBase(b).map((x) => x.id).join(",") === "2,3");
+  verifier("supprimer : absent de la liste", !(await api(b, cookie, "messages")).json.messages.some((x) => x.id === 1));
+  verifier("supprimer deux fois → 404", (await api(b, cookie, "messages/1/supprimer", { methode: "POST" })).statut === 404);
+  const j = (await journalDe(b, cookie)).filter((x) => x.action === "message_supprime");
+  verifier("journal : « message_supprime », par qui, le numéro seul", j.length === 1 && j[0].par === "essai@example.com" && j[0].detail === "Message n° 1");
+  verifier("journal : aucune ligne « message_recu » (trois messages reçus)", (await journalDe(b, cookie)).filter((x) => x.action === "message_recu").length === 0);
+  verifier("messages : adresses mal formées → 404 ou 405", (await api(b, cookie, "messages/0/lu", { methode: "POST", json: { lu: true } })).statut === 404 &&
+    (await api(b, cookie, "messages/abc/supprimer", { methode: "POST" })).statut === 404 &&
+    (await api(b, cookie, "messages/2/supprimer")).statut === 405 && (await api(b, cookie, "messages", { methode: "POST" })).statut === 405);
+  // Un numéro n'est jamais réattribué après une suppression.
+  await envoyerMessage(b, {}, { ip: b.ipNeuve() });
+  verifier("supprimer : un nouveau message ne reprend pas un numéro libéré", messagesEnBase(b).at(-1).id === 4);
+
+  const sql = b.espace.stockage.sql;
+  for (let i = 0; i < 205; i++) {
+    sql.exec("INSERT INTO messages (quand, page, bloc, nom, email, message, connexion) VALUES (?, 'accueil', 'contact-1', 'Robot', 'r@exemple.fr', 'Message en série.', 'x')", b.horloge.maintenant());
+  }
+  const page1 = (await api(b, cookie, "messages")).json;
+  const deuxCents = page1.messages;
+  verifier("messages : 200 au plus par page, les plus récents", deuxCents.length === 200 && deuxCents[0].id === 209);
+  verifier("messages : la page dit qu'il y en a d'autres, et compte toute la base", page1.suite === true && page1.total === 208 && page1.nonLus === 208,
+    JSON.stringify({ suite: page1.suite, total: page1.total, nonLus: page1.nonLus }));
+  const page2 = (await api(b, cookie, "messages?avant=" + deuxCents.at(-1).id)).json;
+  verifier("messages ?avant= : la page suivante, les 8 plus anciens, et plus de suite", page2.messages.length === 8 &&
+    page2.messages[0].id === deuxCents.at(-1).id - 1 && page2.messages.at(-1).id === 2 && page2.suite === false && page2.total === 208,
+    JSON.stringify(page2.messages.map((m) => m.id)));
+  const x = await api(b, cookie, "export");
+  verifier("export : TOUS les messages (pas seulement 200), même forme que la liste", x.statut === 200 && Array.isArray(x.json.messages) &&
+    x.json.messages.length === 208 && Object.keys(x.json.messages[0]).join(",") === "id,quand,page,nom,email,telephone,message,lu" &&
+    !("messages_tronques" in x.json), x.json.messages && x.json.messages.length);
+});
+
+/* L'alerte e-mail : aux adresses du client, JAMAIS à celles de l'atelier,
+   après la réponse, et un échec va au journal. */
+await groupe(1590, async () => {
+  const client = clientAvecAdresses([" Marie@Exemple.FR ", "marie@exemple.fr", "paul@exemple.fr", "pas une adresse"]);
+  const b = creerBanc({ contenu: CONTENU_FORMULAIRE, client, adresses: "atelier@example.com" });
+  const r = await envoyerMessage(b, { message: "Bonjour <script>alert(1)</script>\nDeuxième ligne & fin." });
+  const envois = b.courriel.envois;
+  verifier("alerte : le message est enregistré et la visiteuse redirigée", r.statut === 303 && messagesEnBase(b).length === 1);
+  verifier("alerte : une par adresse du CLIENT (dédoublonnées, la mal formée écartée)", envois.length === 2 &&
+    envois.map((e) => e.to).sort().join(",") === "marie@exemple.fr,paul@exemple.fr", envois.map((e) => e.to).join(","));
+  verifier("alerte : JAMAIS aux adresses de l'atelier", !envois.some((e) => /atelier@example\.com/.test(JSON.stringify(e.to))));
+  const e = envois[0] || {};
+  verifier("alerte : objet « Nouveau message depuis votre site »", e.subject === "Nouveau message depuis votre site" && e.subject === OBJET_ALERTE);
+  verifier("alerte : Reply-To = l'adresse de la visiteuse", e.replyTo === "jeanne@exemple.fr", JSON.stringify(e.replyTo));
+  verifier("alerte : l'expéditeur de l'atelier, au nom du site", e.from && e.from.email === "connexion@atelier.example" && e.from.name === NOM);
+  verifier("alerte : le texte brut dit tout (nom, e-mail, téléphone, message, où le retrouver)", (e.text || "").includes("Jeanne Martin") &&
+    e.text.includes("jeanne@exemple.fr") && e.text.includes("06 12 34 56 78") && e.text.includes("Bonjour <script>alert(1)</script>\nDeuxième ligne & fin.") &&
+    e.text.includes(ORIGINE + "/admin") && e.text.includes("onglet Messages"));
+  verifier("alerte : le HTML échappe le message", (e.html || "").includes("Bonjour &lt;script&gt;alert(1)&lt;/script&gt;") && !e.html.includes("<script>") &&
+    e.html.includes("Deuxième ligne &amp; fin."));
+  verifier("alerte : la première de la journée ne parle pas de plafond", !(e.text || "").includes("ne seront plus annoncés"));
+  verifier("alerte réussie : rien au journal des échecs", journalBrut(b, "envoi_echoue").length === 0);
+
+  // Elle part APRÈS la réponse, dans waitUntil : un service d'envoi qui ne
+  // répond pas ne retient pas la visiteuse. (Le faux service est bloqué ;
+  // une réponse qui l'attendrait n'arriverait jamais : une seconde au plus.)
+  const ctx = fauxCtx();
+  globalThis.caches = b.caches;
+  const site = creerSite({ client, contenu: CONTENU_FORMULAIRE });
+  const sendNormal = b.courriel.send;
+  let liberer;
+  const bloque = new Promise((ok_) => { liberer = ok_; });
+  b.courriel.send = async (m) => { await bloque; return sendNormal(m); };
+  const rep = await Promise.race([
+    site.fetch(new Request(ORIGINE + "/contact", { method: "POST", body: new URLSearchParams(MESSAGE).toString(),
+      headers: { origin: ORIGINE, "content-type": "application/x-www-form-urlencoded", "cf-connecting-ip": b.ipNeuve() } }), b.env, ctx),
+    new Promise((ok_) => setTimeout(() => ok_(null), 1000))
+  ]);
+  verifier("alerte : la réponse part sans attendre l'e-mail (ctx.waitUntil)", !!rep && rep.status === 303 && b.courriel.envois.length === 2 && ctx.promesses.length === 1,
+    rep ? rep.status + " / " + b.courriel.envois.length + " envois" : "réponse jamais arrivée");
+  liberer();
+  await ctx.terminer();
+  b.courriel.send = sendNormal;
+  verifier("alerte : … qui part ensuite", b.courriel.envois.length === 4, b.courriel.envois.length + " envois");
+
+  // Un envoi refusé : le message reste, l'échec va au journal, une ligne par adresse.
+  b.courriel.echec = { code: "E_RATE_LIMIT_EXCEEDED", message: "Trop d'envois" };
+  const refuse = await envoyerMessage(b, {}, { ip: b.ipNeuve() });
+  const echecs = journalBrut(b, "envoi_echoue");
+  verifier("alerte refusée : le message est enregistré quand même", refuse.statut === 303 && messagesEnBase(b).length === 3);
+  verifier("alerte refusée : « envoi_echoue » au journal, avec le numéro et la cause", echecs.length === 2 &&
+    echecs.every((l) => l.detail.includes("Alerte du message n° 3") && l.detail.includes("E_RATE_LIMIT_EXCEEDED")) &&
+    echecs.map((l) => l.par).sort().join(",") === "marie@exemple.fr,paul@exemple.fr", JSON.stringify(echecs));
+});
+await groupe(1640, async () => {
+  // Rien de configuré : rien ne part, rien n'échoue.
+  const client = clientAvecAdresses(["marie@exemple.fr"]);
+  for (const [nom, options] of [["sans expéditeur", { expediteur: "" }], ["sans liaison COURRIEL", { sansCourriel: true }]]) {
+    const b = creerBanc(Object.assign({ contenu: CONTENU_FORMULAIRE, client }, options));
+    const r = await envoyerMessage(b);
+    verifier("alerte " + nom + " : le message passe, rien ne part, rien au journal des échecs", r.statut === 303 && messagesEnBase(b).length === 1 &&
+      b.courriel.envois.length === 0 && journalBrut(b, "envoi_echoue").length === 0);
+    verifier("alerte " + nom + " : aucune place prise dans le plafond des alertes", lignesDeSeau(b, "alerte%").length === 0);
+  }
+  // En développement local, l'alerte va dans la console.
+  const l = creerBanc({ contenu: CONTENU_FORMULAIRE, client, journalLocal: true });
+  const avant = journalConsole.length;
+  await envoyerMessage(l, {}, { base: LOCAL });
+  verifier("alerte en local : rien ne part, elle est dans la console", l.courriel.envois.length === 0 &&
+    journalConsole.slice(avant).some((x) => x.includes("[Développement local] Alerte") && x.includes(MESSAGE.message)));
+});
+await groupe(1660, async () => {
+  // Vingt alertes par 24 heures et par site : le quota d'e-mails de l'atelier est commun à tous les clients.
+  const b = creerBanc({ contenu: CONTENU_FORMULAIRE, client: clientAvecAdresses(["marie@exemple.fr"]) });
+  for (let i = 1; i <= 21; i++) await envoyerMessage(b, { message: "Message de la série, numéro " + i + "." }, { ip: b.ipNeuve() });
+  const envois = b.courriel.envois;
+  verifier("plafond des alertes : 21 messages, 20 alertes", messagesEnBase(b).length === 21 && envois.length === 20, envois.length + " alertes");
+  verifier("plafond des alertes : la 20e prévient que les suivantes ne partiront pas", envois.length === 20 &&
+    envois[19].text.includes("ne seront plus annoncés par e-mail avant demain") && !envois[18].text.includes("ne seront plus annoncés"));
+  b.horloge.avancer(JOUR);
+  await envoyerMessage(b, {}, { ip: b.ipNeuve() });
+  verifier("plafond des alertes : le lendemain, elles repartent", envois.length === 21);
+});
+await groupe(1675, async () => {
+  // Le Reply-To ne prend qu'une adresse sans espace ni saut de ligne.
+  const courriel = fauxCourriel();
+  const env = { COURRIEL: courriel, COURRIEL_EXPEDITEUR: "connexion@atelier.example" };
+  const r = await envoyerAlerteMessage(env, { a: ["marie@exemple.fr"], nomSite: "Site", message: { nom: "X", email: "x@exemple.fr\r\nBcc: tous@exemple.fr", message: "Bonjour." } });
+  verifier("alerte : une adresse piégée n'entre jamais dans Reply-To", r.envoyes === 1 && courriel.envois.length === 1 && !("replyTo" in courriel.envois[0]));
+  const vide = await envoyerAlerteMessage(env, { a: [], nomSite: "Site", message: { nom: "X", email: "x@exemple.fr", message: "Bonjour." } });
+  verifier("alerte sans destinataire : rien ne part, rien n'échoue", vide.envoyes === 0 && vide.echecs.length === 0 && courriel.envois.length === 1);
+});
+
+/* Le Durable Object ne croit pas son appelant sur parole. */
+await groupe(1688, async () => {
+  const b = creerBanc();
+  const stub = b.env.ATELIER.get(b.env.ATELIER.idFromName("site"));
+  const invalide = await stub.deposerMessage({ ip: "192.0.2.1", page: "accueil", bloc: "contact-1", nom: "X", email: "pas-une-adresse", message: "Assez long pour passer." });
+  const sansPage = await stub.deposerMessage(Object.assign({}, MESSAGE, { page: "../admin" }));
+  verifier("deposerMessage : un message invalide est refusé, rien n'est écrit", invalide.ok === false && invalide.motif === "invalide" &&
+    sansPage.ok === false && messagesEnBase(b).length === 0);
+  const bon = await stub.deposerMessage(Object.assign({ ip: "192.0.2.1" }, MESSAGE, { nom: "  Jeanne\nMartin  " }));
+  verifier("deposerMessage : la règle du formulaire nettoie ce qu'il garde", bon.ok === true && bon.id === 1 && bon.alerte === false &&
+    messagesEnBase(b)[0].nom === "Jeanne Martin");
+});
+
+/* www.<domaine> → <domaine>, avant toute autre logique. */
+await groupe(1700, async () => {
+  const client = Object.assign(copie(clientDemo), { domaine: " Exemple.FR " });
+  const b = creerBanc({ client, contenu: CONTENU_FORMULAIRE });
+  const www = "https://www.exemple.fr";
+  const page = await b.appeler("/tarifs?x=1&y=%C3%A9", { base: www });
+  verifier("www → 301 vers le domaine, chemin et requête gardés", page.statut === 301 && page.entetes.get("location") === "https://exemple.fr/tarifs?x=1&y=%C3%A9",
+    page.statut + " " + page.entetes.get("location"));
+  const admin = await b.appeler("/admin/api/etat", { base: www });
+  verifier("www : l'administration aussi, sans réveiller le Durable Object", admin.statut === 301 && admin.entetes.get("location") === "https://exemple.fr/admin/api/etat" &&
+    b.espace.appels === 0);
+  const contact = await envoyerMessage(b, {}, { base: www });
+  verifier("www : POST /contact aussi (rien n'est enregistré sur www)", contact.statut === 301 && messagesEnBase(b).length === 0);
+  const piege = await b.appeler("//pirate.example/", { base: www });
+  verifier("www : « //pirate.example » reste un chemin du domaine", piege.statut === 301 && new URL(piege.entetes.get("location")).host === "exemple.fr");
+  verifier("www : le domaine lui-même n'est pas redirigé", (await b.appeler("/", { base: "https://exemple.fr" })).statut === 200);
+  verifier("www : un autre sous-domaine n'est pas redirigé", (await b.appeler("/", { base: "https://boutique.exemple.fr" })).statut === 200);
+  const sansDomaine = creerBanc();
+  verifier("www : sans domaine dans la fiche, rien n'est redirigé", (await sansDomaine.appeler("/", { base: "https://www.demo.test" })).statut === 200);
+});
+
+/* =========================================================
+   Relecture contradictoire du socle 0.3.0 — chantier serveur
+   =========================================================
+
+   Chaque groupe ci-dessous échouait sur le code d'avant le 3 octobre 2026
+   au soir : un test qui casse le jour où quelqu'un « simplifie ». */
+
+/* Le plafond des alertes compte des E-MAILS, pas des messages : chaque
+   adresse du client coûte sur le quota commun de l'atelier. Avant : un
+   client à trois adresses recevait 60 e-mails pour 25 messages. */
+await groupe(1760, async () => {
+  const trois = creerBanc({ contenu: CONTENU_FORMULAIRE, client: clientAvecAdresses(["a@exemple.fr", "b@exemple.fr", "c@exemple.fr"]) });
+  for (let i = 1; i <= 25; i++) await envoyerMessage(trois, { message: "Message de robot, numéro " + i + "." }, { ip: trois.ipNeuve() });
+  const envois = trois.courriel.envois;
+  verifier("plafond en e-mails : 3 adresses, 25 messages → 18 e-mails au plus (6 alertes entières)", messagesEnBase(trois).length === 25 &&
+    envois.length === 18, envois.length + " e-mails");
+  verifier("plafond en e-mails : la dernière salve (les 3 adresses) prévient que les suivantes ne partiront pas", envois.length === 18 &&
+    envois.slice(15).every((e) => e.text.includes("ne seront plus annoncés par e-mail avant demain")) &&
+    envois.slice(0, 15).every((e) => !e.text.includes("ne seront plus annoncés")));
+  verifier("plafond en e-mails : jamais plus de 20 places prises dans le seau des alertes", lignesDeSeau(trois, "alerte_site").length === 18);
+
+  const cinq = creerBanc({ contenu: CONTENU_FORMULAIRE, client: clientAvecAdresses(["a@exemple.fr", "b@exemple.fr", "c@exemple.fr", "d@exemple.fr", "e@exemple.fr"]) });
+  for (let i = 1; i <= 25; i++) await envoyerMessage(cinq, {}, { ip: cinq.ipNeuve() });
+  verifier("plafond en e-mails : 5 adresses → 4 alertes, 20 e-mails", cinq.courriel.envois.length === 20, cinq.courriel.envois.length + " e-mails");
+
+  const sept = creerBanc({ contenu: CONTENU_FORMULAIRE, client: clientAvecAdresses(["a@exemple.fr", "b@exemple.fr", "c@exemple.fr", "d@exemple.fr", "e@exemple.fr", "f@exemple.fr", "g@exemple.fr"]) });
+  await envoyerMessage(sept);
+  verifier("alerte : " + DESTINATAIRES_ALERTE_MAX + " destinataires au plus, les premiers de la fiche", DESTINATAIRES_ALERTE_MAX === 5 &&
+    sept.courriel.envois.map((e) => e.to).join(",") === "a@exemple.fr,b@exemple.fr,c@exemple.fr,d@exemple.fr,e@exemple.fr",
+    sept.courriel.envois.map((e) => e.to).join(","));
+});
+
+/* Le formulaire public n'écrit plus dans le journal : ni un message reçu,
+   ni un plafond au-delà d'une ligne par jour, ni un échec d'alerte au-delà
+   d'une ligne par jour et par adresse. Avant : 100 messages en une journée
+   remplissaient les 100 lignes de l'API et chassaient la connexion de la
+   titulaire ; en 5 jours, la table entière n'était plus que « message_recu ». */
+await groupe(1790, async () => {
+  const b = creerBanc({ contenu: CONTENU_FORMULAIRE });
+  const cookie = await seConnecter(b);
+  for (let i = 0; i < 20; i++) {
+    const ip = b.ipNeuve();
+    for (let k = 0; k < 5; k++) await envoyerMessage(b, { message: "Robot " + i + ", message " + k + "." }, { ip });
+  }
+  const refus = [];
+  for (let i = 0; i < 3; i++) refus.push((await envoyerMessage(b, {}, { ip: b.ipNeuve() })).statut);
+  verifier("journal : 100 messages acceptés, les suivants refusés au plafond du site", messagesEnBase(b).length === 100 && refus.every((s) => s === 429), refus.join(","));
+  const vingt = (await journalDe(b, cookie)).slice(0, 20);
+  verifier("journal : après 100 messages, la connexion reste dans les 20 lignes que montre l'onglet Compte", actions(vingt).includes("connexion"), actions(vingt).join(","));
+  verifier("journal : aucune ligne « message_recu »", journalBrut(b, "message_recu").length === 0);
+  const plafond = journalBrut(b, "message_plafond");
+  verifier("journal : le plafond du site, UNE ligne, sans nom ni adresse", plafond.length === 1 && plafond[0].par === null && /100 messages en 24 heures/.test(plafond[0].detail),
+    JSON.stringify(plafond));
+
+  // Quatre jours de plus au plafond, en passant par le Durable Object.
+  const stub = b.env.ATELIER.get(b.env.ATELIER.idFromName("site"));
+  for (let jour = 1; jour <= 4; jour++) {
+    b.horloge.avancer(JOUR);
+    for (let i = 0; i < 105; i++) await stub.deposerMessage(Object.assign({ ip: "198.18." + jour + "." + Math.floor(i / 5) }, MESSAGE));
+    b.horloge.avancer(HEURE);
+    await stub.deposerMessage(Object.assign({ ip: "198.19.0." + jour }, MESSAGE));
+  }
+  verifier("journal : cinq jours au plafond → 500 messages, 5 lignes de plafond (une par jour)", messagesEnBase(b).length === 500 &&
+    journalBrut(b, "message_plafond").length === 5, journalBrut(b, "message_plafond").length + " lignes");
+  const tout = actions(await journalDe(b, cookie));
+  verifier("journal : la connexion et la demande de lien sont toujours là", tout.includes("connexion") && tout.includes("lien_demande"), tout.join(","));
+  verifier("journal : la table entière tient en quelques lignes", lignesSi(b, "journal", "SELECT * FROM journal").length === 7);
+});
+
+await groupe(1830, async () => {
+  // Un envoi d'alerte en panne : une ligne par adresse et par jour, pas une par message.
+  const b = creerBanc({ contenu: CONTENU_FORMULAIRE, client: clientAvecAdresses(["marie@exemple.fr", "paul@exemple.fr"]) });
+  b.courriel.echec = { code: "E_SENDER_NOT_VERIFIED", message: "Expéditeur non vérifié" };
+  for (let i = 0; i < 8; i++) await envoyerMessage(b, {}, { ip: b.ipNeuve() });
+  const echecs = journalBrut(b, "envoi_echoue");
+  verifier("échecs d'alerte : 8 messages, 16 envois ratés → 2 lignes (une par adresse)", messagesEnBase(b).length === 8 && echecs.length === 2 &&
+    echecs.every((l) => l.detail.includes("Alerte du message n° 1") && l.detail.includes("E_SENDER_NOT_VERIFIED") && l.detail.includes("seul le premier échec du jour")),
+    JSON.stringify(echecs));
+  b.horloge.avancer(JOUR);
+  await envoyerMessage(b, {}, { ip: b.ipNeuve() });
+  verifier("échecs d'alerte : le lendemain, l'échec suivant est noté", journalBrut(b, "envoi_echoue").length === 4);
+  // Un échec de LIEN de connexion, lui, est toujours noté.
+  const stub = b.env.ATELIER.get(b.env.ATELIER.idFromName("site"));
+  await stub.signalerEchecEnvoi({ email: "marie@exemple.fr", cause: "lien 1" });
+  await stub.signalerEchecEnvoi({ email: "marie@exemple.fr", cause: "lien 2" });
+  verifier("échecs de lien : chacun est noté", journalBrut(b, "envoi_echoue").length === 6);
+});
+
+/* Les messages au-delà des 200 plus récents restent atteignables : page
+   par page, jusqu'au plus ancien, et il se supprime. Avant : ni lisible,
+   ni supprimable, mais compté et exporté. */
+await groupe(1855, async () => {
+  const b = creerBanc({ contenu: CONTENU_FORMULAIRE });
+  await envoyerMessage(b, { nom: "Claire Dupont", message: "La pièce montée du mariage du 14, s'il vous plaît." });
+  const cookie = await seConnecter(b);
+  const sql = b.espace.stockage.sql;
+  for (let i = 0; i < 449; i++) {
+    sql.exec("INSERT INTO messages (quand, page, bloc, nom, email, message, connexion) VALUES (?, 'accueil', 'contact-1', 'Robot', 'r@exemple.fr', 'Message en série.', 'x')", b.horloge.maintenant());
+  }
+  const vus = [];
+  let page = (await api(b, cookie, "messages")).json;
+  const pages = [page];
+  vus.push(...page.messages);
+  while (page.suite === true && pages.length < 10) {
+    page = (await api(b, cookie, "messages?avant=" + page.messages.at(-1).id)).json;
+    pages.push(page);
+    vus.push(...page.messages);
+  }
+  verifier("pagination : 450 messages → trois pages (200, 200, 50), sans doublon ni trou", pages.map((p) => p.messages.length).join(",") === "200,200,50" &&
+    new Set(vus.map((m) => m.id)).size === 450 && vus.every((m, i) => i === 0 || m.id < vus[i - 1].id), pages.map((p) => p.messages.length).join(","));
+  verifier("pagination : chaque page compte toute la base", pages.every((p) => p.total === 450 && p.nonLus === 450));
+  const claire = vus.at(-1);
+  verifier("pagination : le plus ancien (celui de Claire) est atteint", claire.nom === "Claire Dupont" && claire.id === 1);
+  const sup = await api(b, cookie, "messages/" + claire.id + "/supprimer", { methode: "POST" });
+  verifier("pagination : … et il se supprime", sup.statut === 200 && !messagesEnBase(b).some((m) => m.id === 1));
+  const apres = (await api(b, cookie, "messages")).json;
+  verifier("pagination : les comptes suivent", apres.total === 449 && apres.nonLus === 449);
+  for (const mauvais of ["abc", "0", "-3", "", "1.5", "99999999999999999"]) {
+    const r = await api(b, cookie, "messages?avant=" + encodeURIComponent(mauvais));
+    verifier("pagination : ?avant=" + JSON.stringify(mauvais) + " → 400, jamais la première page", r.statut === 400 && r.json.erreur === "requete_invalide", r.statut);
+  }
+  const fin = (await api(b, cookie, "messages?avant=1")).json;
+  verifier("pagination : avant le premier, une page vide et sans suite", fin.messages.length === 0 && fin.suite === false);
+});
+
+await groupe(1890, async () => {
+  // L'export : les 2 000 plus récents, et le compte de ceux qui manquent.
+  const b = creerBanc({ contenu: CONTENU_FORMULAIRE });
+  const cookie = await seConnecter(b);
+  const sql = b.espace.stockage.sql;
+  for (let i = 0; i < 2003; i++) {
+    sql.exec("INSERT INTO messages (quand, page, bloc, nom, email, message, connexion) VALUES (?, 'accueil', 'contact-1', 'Robot', 'r@exemple.fr', 'Message en série.', 'x')", b.horloge.maintenant());
+  }
+  const x = await api(b, cookie, "export");
+  verifier("export : 2 000 messages au plus, les plus récents", x.statut === 200 && x.json.messages.length === 2000 &&
+    x.json.messages[0].id === 2003 && x.json.messages.at(-1).id === 4, x.json.messages && x.json.messages.length);
+  verifier("export : « messages_tronques » dit combien manquent", x.json.messages_tronques === 3, JSON.stringify(x.json.messages_tronques));
+});
+
+/* Reply-To : la règle même du formulaire. Avant : une apostrophe, légale
+   dans une adresse et acceptée par le formulaire, faisait sauter l'en-tête
+   en silence, et une adresse de plus de 120 caractères était COUPÉE avant
+   d'y entrer — la réponse partait vers une autre adresse. */
+await groupe(1910, async () => {
+  const b = creerBanc({ contenu: CONTENU_FORMULAIRE, client: clientAvecAdresses(["marie@exemple.fr"]) });
+  const r = await envoyerMessage(b, { email: "sean.o'brien@exemple.ie" });
+  const e = b.courriel.envois[0] || {};
+  verifier("Reply-To : une adresse avec apostrophe y entre", r.statut === 303 && e.replyTo === "sean.o'brien@exemple.ie", JSON.stringify(e.replyTo));
+  verifier("Reply-To : … et le texte promet ce que l'en-tête fait", (e.text || "").includes("votre réponse partira vers sean.o'brien@exemple.ie."));
+
+  const longue = "a".repeat(130) + "@exemple.fr";
+  await envoyerMessage(b, { email: longue }, { ip: b.ipNeuve() });
+  const l = b.courriel.envois[1] || {};
+  verifier("Reply-To : une adresse de plus de 120 caractères entre ENTIÈRE", l.replyTo === longue && (l.text || "").includes(longue), JSON.stringify(l.replyTo));
+
+  // Une adresse qui ne peut pas entrer dans l'en-tête : le texte ne promet rien.
+  const courriel = fauxCourriel();
+  const env = { COURRIEL: courriel, COURRIEL_EXPEDITEUR: "connexion@atelier.example" };
+  await envoyerAlerteMessage(env, { a: ["marie@exemple.fr"], nomSite: "Site", message: { nom: "X", email: "x@exemple.fr\r\nBcc: tous@exemple.fr", message: "Bonjour." } });
+  const p = courriel.envois[0] || {};
+  verifier("Reply-To absent : le texte dit d'écrire à l'adresse, sans promettre « Répondre »", !("replyTo" in p) && !p.text.includes("partira vers") &&
+    p.text.includes("écrivez à l'adresse indiquée") && !p.html.includes("partira vers"));
+
+  // Une seule règle : ce que le formulaire accepte entre dans l'en-tête, et rien d'autre.
+  const adresses = ["sean.o'brien@exemple.ie", "Jeanne.Martin@Exemple.FR", "a+b@exemple.fr", "x{y}|z~@exemple.fr", "jeanne@exemple", "a b@exemple.fr",
+    "a<b@exemple.fr", 'a"b@exemple.fr', "a,b@exemple.fr", "a;b@exemple.fr", "jeanne@exemple.fr>", "é@exemple.fr", "a@-exemple.fr", "a@exemple..fr"];
+  const ecarts = adresses.filter((a) => !validerMessage({ nom: "X", email: a, message: "Un message assez long." }).erreurs.email !== !!adresseTelleQuelle(a));
+  verifier("Reply-To : même règle que le formulaire, adresse par adresse", ecarts.length === 0, JSON.stringify(ecarts));
+
+  // La copie dans la boîte du client : l'e-mail rappelle la garde d'un an.
+  verifier("alerte : elle rappelle que le site promet un an au plus", e.text.includes("gardés un an au plus") && e.html.includes("gardés un an au plus"));
+});
+
+/* La garde d'un an tient SANS visite : l'alarme du Durable Object. Avant :
+   un message, puis plus rien — le message restait en base pour toujours. */
+await groupe(1945, async () => {
+  const b = creerBanc({ contenu: CONTENU_FORMULAIRE });
+  await envoyerMessage(b);
+  const t0 = b.horloge.maintenant();
+  verifier("garde : le dépôt pose l'alarme pour le jour où le message aura un an", b.espace.stockage.alarme === t0 + 365 * JOUR, String(b.espace.stockage.alarme));
+  const appels = b.espace.appels;
+  // Un an de visites publiques : elles ne réveillent jamais le Durable Object.
+  for (let i = 0; i < 12; i++) {
+    b.horloge.avancer(30 * JOUR);
+    await b.appeler("/");
+  }
+  b.horloge.avancer(5 * JOUR - MINUTE);
+  b.espace.redemarrer();
+  verifier("garde : à un an moins une minute, l'alarme ne sonne pas encore", (await b.espace.declencherAlarme()) === false && messagesEnBase(b).length === 1);
+  b.horloge.avancer(2 * MINUTE);
+  verifier("garde : passé un an, l'alarme sonne", (await b.espace.declencherAlarme()) === true);
+  verifier("garde : … le message est effacé, sans aucun appel du Worker", messagesEnBase(b).length === 0 && b.espace.appels === appels, b.espace.appels - appels + " appels");
+  verifier("garde : … et sans message, plus d'alarme", b.espace.stockage.alarme === null);
+
+  // Deux messages : l'alarme suit le plus ancien, puis se repose sur le suivant.
+  const d = creerBanc({ contenu: CONTENU_FORMULAIRE });
+  await envoyerMessage(d, { message: "Le premier des deux messages." });
+  const t1 = d.horloge.maintenant();
+  d.horloge.avancer(10 * JOUR);
+  await envoyerMessage(d, { message: "Le second, dix jours plus tard." }, { ip: d.ipNeuve() });
+  const t2 = d.horloge.maintenant();
+  verifier("garde : un message plus récent ne recule pas l'alarme", d.espace.stockage.alarme === t1 + 365 * JOUR);
+  d.horloge.regler(t1 + 365 * JOUR);
+  await d.espace.declencherAlarme();
+  verifier("garde : l'alarme efface le plus ancien, garde le suivant, et se repose sur lui", messagesEnBase(d).length === 1 &&
+    messagesEnBase(d)[0].quand === t2 && d.espace.stockage.alarme === t2 + 365 * JOUR);
+  d.horloge.regler(t2 + 365 * JOUR);
+  await d.espace.declencherAlarme();
+  verifier("garde : … qui part à son tour, un an après", messagesEnBase(d).length === 0 && d.espace.stockage.alarme === null);
+
+  // Le plus ancien supprimé à la main : l'alarme sonne pour rien, et se repose.
+  const s = creerBanc({ contenu: CONTENU_FORMULAIRE });
+  await envoyerMessage(s, { message: "Celui qu'on supprimera." });
+  const u1 = s.horloge.maintenant();
+  s.horloge.avancer(JOUR);
+  await envoyerMessage(s, { message: "Celui qui reste." }, { ip: s.ipNeuve() });
+  const u2 = s.horloge.maintenant();
+  const cookie = await seConnecter(s);
+  await api(s, cookie, "messages/1/supprimer", { methode: "POST" });
+  s.horloge.regler(u1 + 365 * JOUR);
+  await s.espace.declencherAlarme();
+  verifier("garde : un message supprimé avant l'heure ne fait pas perdre l'alarme du suivant", messagesEnBase(s).length === 1 &&
+    s.espace.stockage.alarme === u2 + 365 * JOUR);
+
+  // Une plateforme qui rendrait encore, pendant la sonnerie, l'heure de
+  // l'alarme en train de sonner : la suivante se pose quand même.
+  const v = creerBanc({ contenu: CONTENU_FORMULAIRE });
+  await envoyerMessage(v, { message: "Le premier, qui partira." });
+  const v1 = v.horloge.maintenant();
+  v.horloge.avancer(JOUR);
+  await envoyerMessage(v, { message: "Le second, qui restera." }, { ip: v.ipNeuve() });
+  const v2 = v.horloge.maintenant();
+  v.espace.stockage.deleteAlarm = async () => {};
+  v.horloge.regler(v1 + 365 * JOUR);
+  await v.espace.declencherAlarme();
+  verifier("garde : l'alarme suivante se pose même si l'ancienne paraît encore posée pendant la sonnerie", messagesEnBase(v).length === 1 &&
+    v.espace.stockage.alarme === v2 + 365 * JOUR, String(v.espace.stockage.alarme));
+
+  // Une alarme qui ne se pose pas ne fait jamais perdre un message.
+  const p = creerBanc({ contenu: CONTENU_FORMULAIRE });
+  p.espace.stockage.setAlarm = async () => { throw new Error("Alarme refusée (panne simulée)"); };
+  const r = await envoyerMessage(p);
+  verifier("garde : alarme en panne → le message est enregistré quand même, la visiteuse remerciée", r.statut === 303 && messagesEnBase(p).length === 1);
+
+  const source = readFileSync(racine + "socle/serveur/atelier.js", "utf8");
+  verifier("atelier.js : l'alarme de la plateforme délègue au cœur", /^ {2}alarm\(\) \{ return this\.coeur\.alarme\(\); \}$/m.test(source));
+  verifier("l'alarme n'est pas une méthode RPC", !METHODES_RPC.includes("alarm") && !METHODES_RPC.includes("alarme"));
+});
+
+/* La borne du corps : tout ce que la page laisse partir arrive jusqu'à la
+   règle du formulaire. Avant : 16 Ko, et un message en ukrainien de 3 900
+   caractères repartait en 413, sans le formulaire ni son texte. */
+await groupe(1995, async () => {
+  const b = creerBanc({ contenu: CONTENU_FORMULAIRE });
+  const ukrainien = "Добрий день! Я хотіла б замовити торт на весілля. ".repeat(80).slice(0, 3900);
+  const corps = new URLSearchParams(Object.assign({}, MESSAGE, { message: ukrainien })).toString();
+  const r = await envoyerMessage(b, { message: ukrainien });
+  verifier("borne : 3 900 caractères en ukrainien (" + corps.length + " octets) → 303 « envoyé »", corps.length > 16 * 1024 && r.statut === 303 &&
+    messagesEnBase(b).length === 1 && messagesEnBase(b)[0].message === ukrainien.trim(), "statut " + r.statut);
+
+  // Le pire cas : chaque champ à son maximum, chaque caractère à 9 octets une fois encodé.
+  const pire = { nom: "中".repeat(100), email: "中".repeat(254), telephone: "中".repeat(30), message: "中".repeat(4000), site_web: "" };
+  const octetsPire = new URLSearchParams(Object.assign({}, MESSAGE, pire)).toString().length;
+  const appels = b.espace.appels;
+  const rp = await envoyerMessage(b, pire, { ip: b.ipNeuve() });
+  verifier("borne : le pire cas (" + octetsPire + " octets) passe la borne et revient en 400 avec le formulaire, jamais en 413",
+    octetsPire > 39_000 && octetsPire <= LIMITE_CORPS_CONTACT && rp.statut === 400 && rp.texte.includes('<form class="contact__formulaire"') &&
+    b.espace.appels === appels, "statut " + rp.statut);
+  verifier("borne : une valeur entière, ni ouverte ni absurde", Number.isSafeInteger(LIMITE_CORPS_CONTACT) && LIMITE_CORPS_CONTACT >= 40_000 && LIMITE_CORPS_CONTACT <= 64 * 1024,
+    String(LIMITE_CORPS_CONTACT));
+});
+
+/* =========================================================
+   De bout en bout : le rendu, le serveur et l'éditeur ensemble
+   =========================================================
+
+   Le socle 0.3.0 a été écrit par quatre chantiers en même temps, chacun
+   sur ses fichiers, chacun avec ses tests — et chacun testait l'autre tel
+   qu'il l'IMAGINAIT : le serveur recevait un formulaire écrit à la main,
+   l'éditeur lisait des réponses rejouées. Ici, rien n'est recopié
+   (3 octobre 2026) :
+   - le formulaire envoyé est celui que la page de la démo affiche, ses
+     champs lus dans le HTML rendu ;
+   - l'onglet Messages (api.js et messages.js de l'éditeur, tels quels)
+     parle au vrai serveur ;
+   - la page des mentions légales est fabriquée par le geste de l'onglet
+     Site, enregistrée et publiée par le vrai serveur.
+
+   Les modules de l'éditeur importent le rendu par son adresse sur le site
+   (`/rendu/…`) : le même crochet que tester-editeur.mjs le ramène au
+   dossier `socle/public/`. Le serveur importe les mêmes fichiers par un
+   chemin relatif : une seule copie de chaque module. */
+{
+  const PUBLIC = new URL("../socle/public/", import.meta.url).href;
+  registerHooks({
+    resolve(specifier, context, suivant) {
+      if (specifier.startsWith("/rendu/") || specifier.startsWith("/editeur/")) return suivant(new URL(specifier.slice(1), PUBLIC).href, context);
+      return suivant(specifier, context);
+    }
+  });
+}
+const { creerApi } = await import("../socle/public/editeur/api.js");
+const { creerBoiteMessages, lienRepondre } = await import("../socle/public/editeur/messages.js");
+const Operations = await import("../socle/public/editeur/operations.js");
+const { pageMentionsLegales, PAGE_MENTIONS } = await import("../socle/public/rendu/modeles-pages.js");
+const { CHAMPS_CONTACT, CHAMP_PIEGE } = await import("../socle/public/rendu/formulaire.js");
+
+/* L'API de l'éditeur, branchée sur le banc comme le navigateur l'est sur
+   le site : le cookie de session, et `Origin` sur ce qui n'est pas une
+   lecture (le navigateur le pose de lui-même). */
+function apiDeLEditeur(banc, cookie) {
+  return creerApi({
+    fetch: (adresse, init) => {
+      const h = new Headers(init.headers);
+      h.set("cookie", cookie);
+      h.set("cf-connecting-ip", "203.0.113.7");
+      if (init.method !== "GET" && init.method !== "HEAD") h.set("origin", ORIGINE);
+      return banc.fetchBrut(new Request(ORIGINE + adresse, { method: init.method, headers: h, body: init.body }));
+    }
+  });
+}
+
+/* Le formulaire tel que la page l'affiche : son adresse d'envoi, le nom de
+   chacun de ses champs, la valeur des champs cachés. */
+function formulaireDeLaPage(html) {
+  const form = (/<form class="contact__formulaire"[^>]*>[\s\S]*?<\/form>/.exec(html) || [""])[0];
+  const action = (/^<form[^>]*\baction="([^"]*)"/.exec(form) || [])[1] || "";
+  const noms = [...form.matchAll(/<(?:input|textarea)\b[^>]*\bname="([^"]+)"/g)].map((m) => m[1]);
+  const caches = Object.fromEntries([...form.matchAll(/<input type="hidden" name="([^"]+)" value="([^"]*)">/g)].map((m) => [m[1], m[2]]));
+  return { form, action: action.replace(/&amp;/g, "&"), noms, caches };
+}
+
+await groupe(1800, async () => {
+  // Le contenu livré de la démo, tel quel : c'est lui qui affiche le formulaire.
+  const b = creerBanc();
+  const accueil = await b.appeler("/");
+  const f = formulaireDeLaPage(accueil.texte);
+  verifier("bout en bout : la démo affiche son formulaire, en POST", accueil.statut === 200 && f.form.includes('method="post"'), f.form.slice(0, 200));
+  verifier("bout en bout : les champs de la page sont ceux que le serveur lit (formulaire.js), plus page, bloc et le piège",
+    JSON.stringify([...f.noms].sort()) === JSON.stringify([...CHAMPS_CONTACT, CHAMP_PIEGE, "page", "bloc"].sort()), JSON.stringify(f.noms));
+  // Le navigateur n'envoie jamais l'ancre d'une adresse au serveur.
+  const cible = new URL(f.action, ORIGINE);
+  verifier("bout en bout : l'adresse d'envoi est /contact, l'ancre de la section en plus", cible.pathname === "/contact" && cible.search === "" &&
+    cible.hash.length > 1 && accueil.texte.includes(' id="' + decodeURIComponent(cible.hash.slice(1)) + '"'), f.action);
+
+  // Une visiteuse remplit les champs VISIBLES ; les cachés partent tels quels, le piège vide.
+  const saisie = { nom: "Lucie Hoffmann", email: "lucie@exemple.fr", telephone: "", message: "Bonjour, faites-vous du pain sans sel ?" };
+  const corps = Object.fromEntries(f.noms.map((n) => [n, Object.prototype.hasOwnProperty.call(f.caches, n) ? f.caches[n] : saisie[n] ?? ""]));
+  const envoi = await b.appeler(cible.pathname, { methode: "POST", formulaire: corps });
+  const vers = new URL(envoi.entetes.get("location") || "/", ORIGINE);
+  verifier("bout en bout : 303 vers la page du formulaire, à l'ancre où il était", envoi.statut === 303 && vers.origin === ORIGINE &&
+    vers.pathname === "/" && vers.hash === cible.hash, envoi.statut + " " + envoi.entetes.get("location"));
+  const merci = await b.appeler(vers.pathname + vers.search);
+  verifier("bout en bout : la page suivante dit merci (role=status), à la place du formulaire", merci.statut === 200 &&
+    merci.texte.includes('role="status"') && merci.texte.includes("Merci, votre message est bien parti.") && !merci.texte.includes('<form class="contact__formulaire"'));
+  verifier("bout en bout : le message est en base, tel qu'écrit", messagesEnBase(b).length === 1 && messagesEnBase(b)[0].nom === saisie.nom &&
+    messagesEnBase(b)[0].page === f.caches.page && messagesEnBase(b)[0].bloc === f.caches.bloc);
+
+  // Un envoi refusé revient avec le MÊME formulaire, rempli, et la même adresse d'envoi.
+  const refus = await b.appeler(cible.pathname, { methode: "POST", formulaire: Object.assign({}, corps, { message: "Court" }) });
+  const g = formulaireDeLaPage(refus.texte);
+  verifier("bout en bout : un envoi refusé rend le même formulaire, rempli, vers la même adresse", refus.statut === 400 &&
+    JSON.stringify(g.noms) === JSON.stringify(f.noms) && g.action === f.action && g.form.includes('value="Lucie Hoffmann"') && g.form.includes(">\nCourt</textarea>"));
+
+  // L'onglet Messages, branché sur ce serveur.
+  const cookie = await seConnecter(b);
+  const api = apiDeLEditeur(b, cookie);
+  const etat = await api.etat();
+  verifier("bout en bout : l'éditeur lit le compte des non lus dans etat", etat.messages && etat.messages.nonLus === 1, JSON.stringify(etat.messages));
+  const boite = creerBoiteMessages({ api, nonLus: etat.messages.nonLus, maintenant: () => b.horloge.maintenant() });
+  const charge = await boite.charger();
+  const m = boite.liste && boite.liste[0];
+  verifier("bout en bout : l'onglet Messages lit la liste du serveur, champ par champ", charge.ok === true && boite.liste.length === 1 &&
+    m.nom === saisie.nom && m.email === saisie.email && m.telephone === "" && m.message === saisie.message && m.page === "accueil" &&
+    m.quand === messagesEnBase(b)[0].quand && m.lu === false && boite.nonLus === 1, JSON.stringify(boite.liste));
+  verifier("bout en bout : « Répondre » vise l'adresse écrite par la visiteuse", (lienRepondre(m.email, NOM) || "").startsWith("mailto:lucie@exemple.fr?subject="));
+  const ouvert = await boite.ouvrir(m.id);
+  verifier("bout en bout : ouvrir un message le marque lu sur le serveur", ouvert.ok === true && messagesEnBase(b)[0].lu_le !== null &&
+    (await api.etat()).messages.nonLus === 0 && boite.nonLus === 0);
+  // « Actualiser » : c'est le SERVEUR qui dit maintenant « lu », plus la
+  // mémoire de l'onglet.
+  await boite.charger();
+  verifier("bout en bout : rechargée, la liste du serveur le dit lu", boite.liste.length === 1 && boite.liste[0].lu === true && boite.nonLus === 0,
+    JSON.stringify(boite.liste));
+  const remis = await boite.marquerNonLu(m.id);
+  await boite.charger();
+  verifier("bout en bout : « Marquer comme non lu » le remet non lu sur le serveur", remis.ok === true && messagesEnBase(b)[0].lu_le === null &&
+    (await api.etat()).messages.nonLus === 1 && boite.liste[0].lu === false && boite.nonLus === 1);
+  const parti = await boite.supprimer(m.id);
+  verifier("bout en bout : « Supprimer » l'efface du serveur, et le journal le dit", parti.ok === true && messagesEnBase(b).length === 0 &&
+    boite.liste.length === 0 && actions(await journalDe(b, cookie)).includes("message_supprime"));
+  const encore = await boite.supprimer(m.id);
+  verifier("bout en bout : un message déjà supprimé (ailleurs) n'est pas une erreur pour l'onglet", encore.ok === true && encore.introuvable === true);
+
+  // La page des mentions légales, par le geste de l'onglet Site, sur un
+  // site qui ne l'a pas encore.
+  const sans = copie(contenuLivre);
+  for (const id of sans.pages[PAGE_MENTIONS].ordre) delete sans.blocs[id];
+  delete sans.pages[PAGE_MENTIONS];
+  const s = creerBanc({ contenu: sans });
+  const cookieS = await seConnecter(s);
+  const apiS = apiDeLEditeur(s, cookieS);
+  verifier("bout en bout : sans page des mentions, pas de lien en bas de page", !(await s.appeler("/")).texte.includes('href="/mentions-legales"'));
+  const depart = await apiS.etat();
+  const brouillon = depart.brouillon.contenu;
+  const { pageId } = Operations.ajouterPageModele(brouillon, pageMentionsLegales(brouillon));
+  const enregistre = await apiS.enregistrer(JSON.stringify(brouillon), depart.brouillon.revision);
+  const publie = await apiS.publier(enregistre.revision);
+  verifier("bout en bout : la page créée par l'onglet Site est acceptée et publiée par le serveur", pageId === PAGE_MENTIONS &&
+    enregistre.revision === depart.brouillon.revision + 1 && !!publie.publie && !!publie.version);
+  const mentions = await s.appeler("/" + PAGE_MENTIONS);
+  verifier("bout en bout : /mentions-legales en ligne, un seul <h1>, ses trous visibles, le lien du bas sur elle-même", mentions.statut === 200 &&
+    (mentions.texte.match(/<h1\b/g) || []).length === 1 && mentions.texte.includes("[À compléter : forme juridique") &&
+    mentions.texte.includes('href="/mentions-legales" aria-current="page"'));
+  verifier("bout en bout : … et le lien en bas de l'accueil", (await s.appeler("/")).texte.includes('<a class="pied__mentions" href="/mentions-legales"'));
+});
+
+/* Le message d'une cliente derrière 200 messages de robots, par l'onglet
+   Messages TEL QUEL (api.js, messages.js) et le vrai serveur. Le serveur
+   pagine et l'éditeur suit, chacun testé de son côté avec l'autre
+   imaginé : ici ils se parlent (contrôle du 3 octobre 2026). Avant : la
+   liste s'arrêtait aux 200 plus récents, et la cliente n'était nulle part. */
+await groupe(2185, async () => {
+  const b = creerBanc({ contenu: CONTENU_FORMULAIRE });
+  await envoyerMessage(b, { nom: "Claire Dupont", message: "Pouvez-vous me garder deux bretzels pour samedi ?" });
+  const sql = b.espace.stockage.sql;
+  for (let i = 0; i < 200; i++) {
+    sql.exec("INSERT INTO messages (quand, page, bloc, nom, email, message, connexion) VALUES (?, 'accueil', 'contact-1', 'Robot', 'r@exemple.fr', 'Message en série.', '')", b.horloge.maintenant());
+  }
+  const cookie = await seConnecter(b);
+  const api = apiDeLEditeur(b, cookie);
+  const etat = await api.etat();
+  const boite = creerBoiteMessages({ api, nonLus: etat.messages.nonLus, maintenant: () => b.horloge.maintenant() });
+  await boite.charger();
+  const claireDans = () => (boite.liste || []).find((m) => m.nom === "Claire Dupont") || null;
+  verifier("bout en bout, 201 messages : la première page en montre 200, se sait coupée, et compte toute la boîte",
+    boite.liste.length === 200 && !claireDans() && boite.total === 201 && boite.nonLus === 201 && boite.tronquee && boite.peutChargerPlusAnciens,
+    JSON.stringify({ n: boite.liste.length, total: boite.total, nonLus: boite.nonLus, tronquee: boite.tronquee }));
+  const plus = await boite.chargerPlusAnciens();
+  const claire = claireDans();
+  verifier("bout en bout : « Afficher les messages plus anciens » amène le message de la cliente", plus.ok === true && plus.ajoutes === 1 &&
+    !!claire && claire.id === 1 && boite.liste.length === 201 && !boite.tronquee && !boite.peutChargerPlusAnciens, JSON.stringify(plus));
+  if (!claire) return;
+  await boite.ouvrir(claire.id);
+  verifier("bout en bout : ouvert, il est lu sur le serveur, et les comptes suivent", messagesEnBase(b)[0].lu_le !== null &&
+    (await api.etat()).messages.nonLus === 200 && boite.nonLus === 200);
+  const parti = await boite.supprimer(claire.id);
+  verifier("bout en bout : … et il se supprime du serveur (droit à l'effacement)", parti.ok === true &&
+    !messagesEnBase(b).some((m) => m.nom === "Claire Dupont") && boite.total === 200 && !claireDans());
 });
 
 /* ----- Bilan ----- */

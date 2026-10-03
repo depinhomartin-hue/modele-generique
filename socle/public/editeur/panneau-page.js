@@ -41,6 +41,15 @@ export function noteLue(note) {
 }
 const aEnPropre = (o, k) => !!o && typeof o === "object" && Object.prototype.hasOwnProperty.call(o, k);
 
+/* Une section « Contact » qui affiche le formulaire : on dit où arrivent
+   les messages (socle 0.3.0). Sans cette phrase, la case cochée laissait
+   croire qu'ils partiraient vers une boîte e-mail. La case se lit par
+   `valeurReglage`, comme le rendu la lit. */
+export function aideFormulaire(bloc) {
+  if (!bloc || typeof bloc !== "object" || bloc.type !== "contact") return null;
+  return valeurReglage(bloc, "formulaire") === true ? "Les messages reçus arrivent dans l'onglet « Messages »." : null;
+}
+
 export function construirePage(app, ctx) {
   const c = app.etat.contenu;
   const pageId = app.etat.pageId;
@@ -134,6 +143,12 @@ export function construirePage(app, ctx) {
         }
         d.append(fs);
       }
+    }
+    const aideMessages = aideFormulaire(bloc);
+    if (aideMessages) {
+      d.append(h("div", { classe: "ed-ligne-aide" },
+        aide(aideMessages),
+        bouton({ libelle: "Voir les messages", quand: () => app.panneau.montrer("messages"), attributs: { "data-cle": "bloc:" + id + ":messages" } })));
     }
 
     // Les listes de la section. Une liste dont les éléments portent une

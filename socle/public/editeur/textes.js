@@ -87,7 +87,11 @@ export const ACTIONS_JOURNAL = Object.freeze({
   connexion: "Connexion",
   lien_demande: "Lien de connexion demandé",
   lien_refuse: "Lien de connexion refusé (trop de demandes)",
-  envoi_echoue: "Le lien de connexion n'a pas pu partir",
+  // Depuis le socle 0.3.0, l'alerte d'un message de contact qui ne part pas
+  // s'inscrit sous la même action que le lien de connexion : « Le lien de
+  // connexion n'a pas pu partir » aurait été faux une fois sur deux
+  // (3 octobre 2026). La cause dit lequel (`detailJournal`).
+  envoi_echoue: "Un e-mail n'a pas pu partir",
   publication: "Publication",
   reprise: "Reprise d'une ancienne version",
   abandon: "Modifications non publiées abandonnées",
@@ -99,7 +103,17 @@ export const ACTIONS_JOURNAL = Object.freeze({
   // modifications ») : le serveur l'a mis de côté avant (relecture du
   // 3 octobre 2026).
   ecrasement: "Brouillon modifié ailleurs remplacé (l'ancien est dans les versions)",
-  hors_editeur: "Le site a changé hors de l'éditeur"
+  hors_editeur: "Le site a changé hors de l'éditeur",
+  // Le formulaire de contact (socle 0.3.0). Le texte du message n'est
+  // jamais dans le journal : il est dans l'onglet « Messages ».
+  // `message_recu` n'est plus écrit (le serveur, relecture du 3 octobre
+  // 2026 : cent messages de robots chassaient du journal les connexions,
+  // celle d'un intrus comprise) ; son libellé reste pour les lignes déjà
+  // écrites. À la place, une ligne par jour au plus quand le site atteint
+  // son plafond de messages.
+  message_recu: "Message reçu par le formulaire de contact",
+  message_plafond: "Trop de messages reçus en 24 heures : le formulaire de contact refuse les suivants pour l'instant",
+  message_supprime: "Message supprimé"
 });
 
 export function phraseJournal(e, maintenant = Date.now()) {
@@ -108,6 +122,29 @@ export function phraseJournal(e, maintenant = Date.now()) {
   const morceaux = [libelle + " — " + dateCourte(e.quand, maintenant)];
   if (typeof e.par === "string" && e.par) morceaux.push(e.par);
   return morceaux.join(", ");
+}
+
+/* La cause d'un e-mail qui n'est pas parti, telle que le serveur l'a
+   écrite. PROCESSUS.md (§ 4) envoie la lire dans le journal quand « rien
+   n'arrive » — et elle n'y était pas : le journal n'affichait que
+   l'action, la date et l'adresse (3 octobre 2026). Elle est technique
+   (« E_SENDER_NOT_VERIFIED »…) : l'onglet la range sous « Détail pour
+   l'atelier », repliée. Les autres actions n'ont rien à montrer de plus. */
+const DETAIL_UTILE = new Set(["envoi_echoue"]);
+export function detailJournal(e) {
+  if (!e || typeof e !== "object" || !DETAIL_UTILE.has(e.action)) return "";
+  return typeof e.detail === "string" ? e.detail.trim() : "";
+}
+
+/* Le formulaire de contact ne part jamais du cadre de l'éditeur (cadre.js) :
+   il enregistrerait un vrai message, envoyé par l'artisan à lui-même. En
+   aperçu, où l'on peut le remplir, on dit pourquoi rien ne se passe ; en
+   édition ses champs sont désactivés, il n'y a rien à dire. */
+export function phraseFormulaireNonEnvoye(mode) {
+  const suite = " Sur votre site, les messages de vos visiteurs arrivent dans l'onglet « Messages ».";
+  if (mode === "apercu") return "Le formulaire ne s'envoie pas depuis l'aperçu." + suite;
+  if (mode === "version") return "Le formulaire ne s'envoie pas depuis une ancienne version." + suite;
+  return "";
 }
 
 /* ----- Les erreurs du serveur, en clair -----

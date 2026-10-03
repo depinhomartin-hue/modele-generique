@@ -10,8 +10,9 @@
    Les fichiers statiques (CSS, polices, illustrations, modules de rendu)
    sont servis par Cloudflare AVANT le Worker, gratuitement et sans compter
    dans les requêtes : le Worker ne reçoit que ce qui n'est pas un fichier
-   de `socle/public/` — les pages, `robots.txt`, `sitemap.xml`, et depuis
-   la phase 2 l'administration (`/admin…`) et les photos (`/medias/…`). */
+   de `socle/public/` — les pages, `robots.txt`, `sitemap.xml`, depuis la
+   phase 2 l'administration (`/admin…`) et les photos (`/medias/…`), et
+   depuis le socle 0.3.0 le formulaire de contact (`POST /contact`). */
 
 import { rendrePage, normaliser, PAGE_ACCUEIL } from "./public/rendu/page.js";
 import { identifiantValide } from "./public/rendu/outils.js";
@@ -19,12 +20,35 @@ import { lireContenu } from "./serveur/contenu.js";
 import { reponseHtml, reponseTexte, reponseRedirection, reponseMethodeRefusee } from "./serveur/reponses.js";
 import { estAdresseAdmin, routerAdmin } from "./serveur/admin.js";
 import { servirPhoto } from "./serveur/medias.js";
+import { recevoirMessage, formulaireDeLAdresse, CHEMIN_CONTACT } from "./serveur/contact.js";
+
+/* Le domaine de la fiche, en minuscules (un nom d'hôte ne distingue pas
+   la casse, et `URL` rend toujours `hostname` en minuscules) ; vide s'il
+   n'est pas renseigné ou pas de la bonne forme. */
+function domaineDe(client) {
+  const d = typeof client.domaine === "string" ? client.domaine.trim().toLowerCase() : "";
+  return /^[a-z0-9.-]+$/.test(d) ? d : "";
+}
 
 /* L'adresse publique du site : le domaine de la fiche s'il est connu,
    sinon celle de la requête (développement local, sous-domaine de démo). */
 function origineDe(client, url) {
-  if (client.domaine && /^[a-z0-9.-]+$/i.test(client.domaine)) return "https://" + client.domaine;
-  return url.origin;
+  const domaine = domaineDe(client);
+  return domaine ? "https://" + domaine : url.origin;
+}
+
+/* `www.<domaine>` → `<domaine>`, en 301, avant TOUTE autre logique,
+   administration comprise. Une page n'a qu'une adresse aux yeux des
+   moteurs de recherche, et un cookie de session posé sur l'une ne vaut pas
+   sur l'autre : sans cette redirection, la cliente qui ouvre son
+   administration par « www » se reconnecterait sans comprendre pourquoi.
+   Le chemin BRUT (`url.pathname`, encore encodé) suit tel quel : l'hôte
+   de destination est écrit en toutes lettres, « //pirate.example » n'y
+   devient qu'un chemin de notre propre domaine. */
+function redirectionWww(client, url) {
+  const domaine = domaineDe(client);
+  if (!domaine || url.hostname !== "www." + domaine) return null;
+  return reponseRedirection("https://" + domaine + url.pathname + url.search, 301);
 }
 
 /* « / » → l'accueil ; « /tarifs » → la page `tarifs` si elle existe.
@@ -87,6 +111,25 @@ function sitemap(contenu, origine) {
     urls.join("\n") + "\n</urlset>\n";
 }
 
+/* La page d'erreur garde l'habit du site : l'en-tête et le pied permettent
+   de repartir, au lieu d'une page blanche. Une page d'erreur ne s'indexe
+   jamais — sans pour autant se faire passer pour une maquette : le bandeau
+   de démonstration ne dépend que de la fiche du client. Le formulaire de
+   contact la sert aussi, quand un envoi vise une section qui n'existe pas. */
+function reponseIntrouvable(contenu, fiche, origine, chemin, methode) {
+  const html = rendrePage({
+    contenu: Object.assign({}, contenu, {
+      pages: Object.assign({}, contenu.pages, { introuvable: { titre: "Page introuvable", ordre: [], interne: "introuvable" } })
+    }),
+    client: fiche,
+    pageId: "introuvable",
+    origine,
+    chemin,
+    indexable: false
+  });
+  return reponseHtml(html, { client: fiche, statut: 404, methode, indexable: false });
+}
+
 export function creerSite({ client, contenu: contenuLivre }) {
   const fiche = client && typeof client === "object" ? client : {};
 
@@ -94,6 +137,9 @@ export function creerSite({ client, contenu: contenuLivre }) {
     async fetch(request, env, ctx) {
       const url = new URL(request.url);
       const methode = request.method;
+
+      const versDomaine = redirectionWww(fiche, url);
+      if (versDomaine) return versDomaine;
 
       /* L'administration et les photos passent AVANT la logique publique :
          elles ont leurs propres méthodes (POST, PUT) et leurs propres
@@ -106,7 +152,22 @@ export function creerSite({ client, contenu: contenuLivre }) {
       }
       if (url.pathname.startsWith("/medias/")) return servirPhoto(request, env, ctx);
 
-      if (methode !== "GET" && methode !== "HEAD") return reponseMethodeRefusee(fiche);
+      /* Le formulaire de contact : la seule écriture publique. Il réveille
+         le Durable Object — c'est l'exception à « une visite ne le réveille
+         jamais », et elle ne concerne qu'un envoi, pas une visite. */
+      if (url.pathname === CHEMIN_CONTACT && methode === "POST") {
+        const origineSite = origineDe(fiche, url);
+        return recevoirMessage(request, env, ctx, {
+          client: fiche, contenuLivre, origine: origineSite,
+          introuvable: (contenu) => reponseIntrouvable(contenu, fiche, origineSite, CHEMIN_CONTACT, methode)
+        });
+      }
+
+      if (methode !== "GET" && methode !== "HEAD") {
+        const refus = reponseMethodeRefusee(fiche);
+        if (url.pathname === CHEMIN_CONTACT) refus.headers.set("Allow", "GET, HEAD, POST");
+        return refus;
+      }
 
       const origine = origineDe(fiche, url);
       if (url.pathname.length > 1 && url.pathname.endsWith("/")) {
@@ -131,35 +192,30 @@ export function creerSite({ client, contenu: contenuLivre }) {
 
       const pageId = pageDe(chemin, contenu);
       if (!pageId) {
-        // La page d'erreur garde l'habit du site : l'en-tête et le pied
-        // permettent de repartir, au lieu d'une page blanche.
-        // Une page d'erreur ne s'indexe jamais — sans pour autant se faire
-        // passer pour une maquette : le bandeau de démonstration ne dépend
-        // que de la fiche du client.
-        const html = rendrePage({
-          contenu: Object.assign({}, contenu, {
-            pages: Object.assign({}, contenu.pages, { introuvable: { titre: "Page introuvable", ordre: [], interne: "introuvable" } })
-          }),
-          client: fiche,
-          pageId: "introuvable",
-          origine,
-          chemin,
-          indexable: false
-        });
-        return reponseHtml(html, { client: fiche, statut: 404, methode, indexable: false });
+        /* « /contact » est l'adresse où part le formulaire. Ouverte en GET
+           (un favori, un robot, un « Précédent »), elle ramène à l'accueil
+           plutôt qu'à une erreur — SAUF si le client a une page « contact » :
+           elle passe alors par `pageDe` ci-dessus et s'affiche normalement.
+           Le formulaire n'envoie qu'en POST, les deux ne se gênent pas. */
+        if (url.pathname === CHEMIN_CONTACT) return reponseRedirection("/", 303);
+        return reponseIntrouvable(contenu, fiche, origine, chemin, methode);
       }
 
       /* Dernier filet : si le contenu PUBLIÉ fait lever le rendu (un cas que
          `normaliser` n'aurait pas prévu), on rend le contenu LIVRÉ ; et si
-         même celui-ci échoue, une page de secours. Jamais une erreur brute. */
+         même celui-ci échoue, une page de secours. Jamais une erreur brute.
+         `formulaire` : la page qui suit un message envoyé dit « merci »
+         (`?contact=envoye&bloc=<id>`, voir serveur/contact.js). */
       try {
-        return reponseHtml(rendrePage({ contenu, client: fiche, pageId, origine, chemin }), { client: fiche, methode });
+        const formulaire = formulaireDeLAdresse(url, contenu, pageId);
+        return reponseHtml(rendrePage({ contenu, client: fiche, pageId, origine, chemin, formulaire }), { client: fiche, methode });
       } catch (e) {
         console.error("Rendu du contenu publié impossible, repli sur le contenu livré :", e);
         try {
           const livre = normaliser(contenuLivre);
           const pageLivree = Object.prototype.hasOwnProperty.call(livre.pages, pageId) ? pageId : PAGE_ACCUEIL;
-          return reponseHtml(rendrePage({ contenu: livre, client: fiche, pageId: pageLivree, origine, chemin }), { client: fiche, methode });
+          const formulaire = formulaireDeLAdresse(url, livre, pageLivree);
+          return reponseHtml(rendrePage({ contenu: livre, client: fiche, pageId: pageLivree, origine, chemin, formulaire }), { client: fiche, methode });
         } catch (e2) {
           console.error("Rendu du contenu livré impossible :", e2);
           return reponseHtml(PAGE_DE_SECOURS, { client: fiche, statut: 503, methode, indexable: false });

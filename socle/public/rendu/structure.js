@@ -474,7 +474,45 @@ export function mediasCites(contenu) {
    du modèle — chaque case est banale, l'ensemble est inventé. Une valeur
    compte si elle est égale à celle du modèle pour ce chemin, quel que soit
    l'élément : une carte ajoutée naît du premier élément du modèle.
-   Les sections masquées ne comptent pas : personne ne les voit. */
+   Les sections masquées ne comptent pas : personne ne les voit.
+
+   Et toute section VISIBLE dont un texte contient encore « [À compléter »
+   est signalée aussi (`texte: true`, plus `aCompleter: true` pour qui veut
+   le dire autrement). Ce sont les trous que laisse la page des mentions
+   légales (modeles-pages.js) — une obligation légale à moitié remplie
+   partirait en ligne sans un mot (3 octobre 2026). Ici, PAS de liste
+   déclarée : un trou est un trou, quel que soit le champ ou le genre de
+   section, y compris ceux qui n'ont aucun texte d'exemple (le contact).
+   La recherche voit plus large que la forme écrite par le modèle (casse,
+   accent, espace insécable) : le contrôle doit voir au moins aussi large
+   que ce qu'on y a posé, jamais l'inverse. */
+const TROU = /\[\s*(?:à|a|&agrave;)\s*compl(?:é|e|&eacute;)ter/i;
+
+export function contientUnTrou(valeur) {
+  let trouve = false;
+  parcourir(valeur, "", (v) => {
+    if (!trouve && typeof v === "string" && v.length && TROU.test(texteBrut(v))) trouve = true;
+  });
+  return trouve;
+}
+
+/* Les mêmes trous, COMPTÉS : l'onglet « Site » de l'éditeur dit combien
+   il en reste sur la page des mentions légales. Même motif, même parcours
+   que `contientUnTrou`. L'éditeur en tenait une copie, presque identique
+   (motif écrit autrement, profondeur de 8 au lieu de 12) : un compte qui
+   voit moins large que l'avertissement de publication dirait « plus rien
+   à remplir » pendant que la publication prévient du contraire. Une seule
+   écriture depuis le 3 octobre 2026. */
+const TROUS = new RegExp(TROU.source, "gi");
+
+export function compterTrous(valeur) {
+  let n = 0;
+  parcourir(valeur, "", (v) => {
+    if (typeof v === "string" && v.length) n += (texteBrut(v).match(TROUS) || []).length;
+  });
+  return n;
+}
+
 function valeursAuMotif(objet, motif) {
   let courants = [objet];
   for (const seg of motif.split(".")) {
@@ -503,10 +541,12 @@ export function restesDuModele(contenu) {
       if (!estObjet(bloc) || !typeConnu(bloc.type) || bloc.masque === true) continue;
       const def = BLOCS[bloc.type];
       const motifs = Array.isArray(def.exemples) ? def.exemples : [];
-      if (!motifs.length) continue;
-      let modele;
-      try { modele = def.modele(); } catch { continue; }
-      let texte = false;
+      const aCompleter = contientUnTrou(bloc);
+      let modele = {};
+      if (motifs.length) {
+        try { modele = def.modele(); } catch { modele = {}; }
+      }
+      let texte = aCompleter;
       let photo = false;
       for (const motif of motifs) {
         const attendues = valeursAuMotif(modele, motif);
@@ -521,8 +561,64 @@ export function restesDuModele(contenu) {
           }
         }
       }
-      if (texte || photo) restes.push({ id, pageId, nom: nomDuBloc(bloc), texte, photo });
+      if (texte || photo) {
+        const reste = { id, pageId, nom: nomDuBloc(bloc), texte, photo };
+        if (aCompleter) reste.aCompleter = true;
+        restes.push(reste);
+      }
     }
   }
   return restes;
+}
+
+/* ----- La page des mentions légales -----
+
+   Son adresse vit ICI, et non plus dans modeles-pages.js (qui la
+   réexporte) : modeles-pages.js importe déjà ce module, et c'est ce
+   module que liront le rendu, le contrôle qualité et l'éditeur pour
+   savoir si la page est réellement là. L'importation inverse ferait une
+   boucle (3 octobre 2026). */
+export const PAGE_MENTIONS = "mentions-legales";
+
+/* Ce que le rendu n'écrit PAS comme du texte : les réglages (même écrits
+   en texte par un contenu abîmé, « true »), les adresses et les
+   descriptions de photos. Une section qui n'a que cela n'affiche aucun
+   mot à lire. */
+const SANS_TEXTE = new Set([
+  "type", "ancre", "masque", "fond", "disposition", "style", "inverse", "formulaire",
+  "image", "imageAlt", "src", "alt", "vers", "lienPlan", "note"
+]);
+
+function afficheDuTexte(bloc) {
+  let trouve = false;
+  parcourir(bloc, "", (v, chemin, cle) => {
+    if (!trouve && typeof v === "string" && !SANS_TEXTE.has(cle) && texteBrut(v) !== "") trouve = true;
+  });
+  return trouve;
+}
+
+/* La page des mentions légales est-elle réellement LÀ pour une visiteuse ?
+   Elle doit exister ET avoir au moins une section visible (d'un genre que
+   le socle sait dessiner, non masquée) qui affiche du texte.
+
+   Relecture du 3 octobre 2026 : on ne regardait que l'existence de la
+   page. Une éditrice qui masquait la section pour faire taire
+   l'avertissement des « [À compléter » gardait le lien « Mentions
+   légales » en bas de chaque page — vers une page vide —, et le contrôle
+   de production répondait ✓. Une obligation légale qui PARAÎT tenue est
+   pire qu'une obligation absente : personne ne la cherche plus.
+
+   C'est la seule règle : le bas de page et la notice du formulaire
+   (page.js), le contrôle qualité et l'éditeur la lisent ici. Accepte le
+   contenu brut comme le contenu normalisé, et ne lève jamais. */
+export function mentionsPresentes(contenu) {
+  if (!estObjet(contenu) || !estObjet(contenu.pages) || !estObjet(contenu.blocs)) return false;
+  if (!aEnPropre(contenu.pages, PAGE_MENTIONS)) return false;
+  const page = contenu.pages[PAGE_MENTIONS];
+  if (!estObjet(page) || !Array.isArray(page.ordre)) return false;
+  return page.ordre.some((id) => {
+    if (typeof id !== "string" || !aEnPropre(contenu.blocs, id)) return false;
+    const bloc = contenu.blocs[id];
+    return estObjet(bloc) && typeConnu(bloc.type) && bloc.masque !== true && afficheDuTexte(bloc);
+  });
 }

@@ -26,4 +26,11 @@ export class Atelier extends DurableObject {
   entrerParLienDemo(demande) { return this.coeur.entrerParLienDemo(demande); }
   deconnecter(demande) { return this.coeur.deconnecter(demande); }
   signalerEchecEnvoi(demande) { return this.coeur.signalerEchecEnvoi(demande); }
+  deposerMessage(demande) { return this.coeur.deposerMessage(demande); }
+
+  /* L'alarme : c'est la PLATEFORME qui l'appelle, à l'heure posée par le
+     cœur (`armerAlarme`), et non le Worker — elle n'est pas dans
+     `METHODES_RPC`. Elle purge les messages de plus d'un an même quand plus
+     rien ne réveille le Durable Object (atelier-coeur.js, GARDE_MESSAGES). */
+  alarm() { return this.coeur.alarme(); }
 }

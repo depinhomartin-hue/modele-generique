@@ -1,0 +1,8 @@
+{
+  "_note": "Le compte Cloudflare où l'atelier déploie ses sites. PROVISOIRE (3 octobre 2026) : c'est le compte de Martin — celui de Graine de Pensée —, en attendant le compte de l'atelier. Lu par outils/deployer.mjs (wrangler whoami doit afficher ce compte, et son identifiant est imposé à wrangler deploy) et par outils/nouveau-client.mjs (l'adresse *.workers.dev des maquettes : vitrine-<id>.<sousDomaineWorkers>.workers.dev). Le jour du changement de compte, seuls ces trois champs bougent.",
+  "compteCloudflare": {
+    "email": "depinhomartin@gmail.com",
+    "id": "747dfba4f9ddff98f2278760572f4f0f"
+  },
+  "sousDomaineWorkers": "depinhomartin"
+}

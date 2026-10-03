@@ -29,7 +29,16 @@ const CONTRAT = {
   // `liensDansLesTextes` et `reecrireLiensDansTexte` : les liens écrits dans
   // un texte, que renommer une ancre ou supprimer une page doit suivre
   // (operations.js, relecture du 3 octobre 2026).
-  "/rendu/structure.js": ["LISTES_SITE", "descripteurListe", "nouvelIdBloc", "idDePage", "cheminAlt", "nomDuBloc", "cheminsVers", "liensDansLesTextes", "reecrireLiensDansTexte", "lireChemin", "ecrireChemin", "mediasCites", "restesDuModele"]
+  // `compterTrous` : le compte des « [À compléter … » de l'onglet « Site »
+  // (socle 0.3.0), la règle même de l'avertissement de publication.
+  // `mentionsPresentes` : la page des mentions légales affiche-t-elle
+  // quelque chose ? La règle du bas de page, que l'onglet « Site » et la
+  // publication redisent (relecture du 3 octobre 2026).
+  "/rendu/structure.js": ["LISTES_SITE", "descripteurListe", "nouvelIdBloc", "idDePage", "cheminAlt", "nomDuBloc", "cheminsVers", "liensDansLesTextes", "reecrireLiensDansTexte", "lireChemin", "ecrireChemin", "mediasCites", "restesDuModele", "compterTrous", "mentionsPresentes"],
+  // La page des mentions légales, que l'onglet « Site » crée toute faite
+  // (socle 0.3.0). Un module de rendu resté en cache d'une version 0.2
+  // n'existe pas : l'écran le dit au lieu d'un onglet « Site » vide.
+  "/rendu/modeles-pages.js": ["PAGE_MENTIONS", "pageMentionsLegales"]
 };
 
 const racine = document.getElementById("editeur");
@@ -66,7 +75,16 @@ async function verifierContrat() {
   for (const [chemin, noms] of Object.entries(CONTRAT)) {
     // Un import par espace de noms ne lève pas pour un nom absent : c'est
     // ce qui permet de le constater, puis de le dire.
-    const module = await import(chemin);
+    let module;
+    try {
+      module = await import(chemin);
+    } catch (e) {
+      // Un module tout entier absent (un fichier ajouté par une version
+      // plus récente du socle, que le serveur n'a pas encore) : c'est le
+      // même défaut, il reçoit le même écran.
+      manquants.push(chemin + " : module introuvable (" + String((e && e.message) || e) + ")");
+      continue;
+    }
     for (const nom of noms) if (!(nom in module)) manquants.push(chemin + " : " + nom);
   }
   return manquants;

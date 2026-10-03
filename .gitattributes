@@ -1,0 +1,20 @@
+# Des fins de ligne Unix partout, quel que soit l'ordinateur qui enregistre
+# (3 octobre 2026). Un fichier passé par Windows avec des CRLF changerait
+# toutes ses lignes dans git, et l'empreinte du contenu livré avec.
+* text=auto eol=lf
+
+# Images et polices : des octets, jamais du texte. Git n'y touche pas et
+# n'essaie pas d'en montrer les différences.
+# Les SVG restent du texte (du XML) : leurs différences se lisent.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.avif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
+*.eot binary

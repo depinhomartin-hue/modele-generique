@@ -74,7 +74,9 @@ const TRACES = {
   horsLigne: '<path d="M3 3l18 18"/><path d="M8.5 8.6A5 5 0 0 0 6 18h11"/><path d="M21 15.5A4 4 0 0 0 17 10h-.3A6 6 0 0 0 10.8 6"/>',
   alerte: '<path d="M12 3 2 21h20L12 3z"/><path d="M12 10v5M12 18h.01"/>',
   externe: '<path d="M14 4h6v6M20 4 10 14"/><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>',
-  envoyer: '<path d="M12 19V5M5 12l7-7 7 7"/><path d="M4 21h16"/>'
+  envoyer: '<path d="M12 19V5M5 12l7-7 7 7"/><path d="M4 21h16"/>',
+  actualiser: '<path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 4v5h-5"/>',
+  repondre: '<path d="M10 9 5 13l5 4"/><path d="M5 13h9a5 5 0 0 1 5 5v1"/>'
 };
 
 export function icone(nom) {

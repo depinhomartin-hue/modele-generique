@@ -15,7 +15,7 @@
 
 import { h, bouton } from "./dom.js";
 import { groupe, aide } from "./panneau-commun.js";
-import { phraseVersion, phraseJournal, messageErreur } from "./textes.js";
+import { phraseVersion, phraseJournal, detailJournal, messageErreur } from "./textes.js";
 
 /* Une liste qui se charge : « Chargement… », puis la liste, ou l'erreur
    avec « Réessayer ». Jamais un écran vide sans explication.
@@ -108,13 +108,25 @@ export function construireCompte(app) {
 
   corps.push(groupe("Une copie de votre site",
     h("a", { classe: "ed-bouton", href: "/admin/api/export", download: "", "data-cle": "compte:export" }, "Télécharger une copie de mon contenu"),
-    aide("Un fichier avec les textes de votre site tel qu'il est en ligne et la liste de vos photos. Gardez-le en lieu sûr.")));
+    // Depuis le socle 0.3.0, l'export porte aussi les messages reçus : ce
+    // sont les données du client, elles partent avec lui. Et elles disent
+    // qui a écrit quoi : « en lieu sûr » n'est pas une formule.
+    // « Les 2 000 plus récents » : le serveur n'en exporte pas davantage
+    // (atelier-coeur.js, MESSAGES_EXPORTES) ; promettre « les messages »
+    // tout court aurait été faux au-delà (contrôle du 3 octobre 2026).
+    aide("Un fichier avec les textes de votre site tel qu'il est en ligne, la liste de vos photos et les messages de vos visiteurs (les 2 000 plus récents). Il contient leurs coordonnées : gardez-le en lieu sûr.")));
 
   corps.push(groupe("Dernières opérations",
     chargement(app, () => app.api.journal(), (d) => {
       const evenements = (Array.isArray(d.evenements) ? d.evenements : []).slice(0, 20);
       if (!evenements.length) return aide("Rien pour l'instant.");
-      return h("ul", { classe: "ed-journal" }, ...evenements.map((ev) => h("li", null, phraseJournal(ev))));
+      // La cause d'un e-mail qui n'est pas parti, repliée : elle sert à
+      // l'atelier (textes.js, `detailJournal`).
+      return h("ul", { classe: "ed-journal" }, ...evenements.map((ev) => {
+        const detail = detailJournal(ev);
+        return h("li", null, phraseJournal(ev),
+          detail ? h("details", { classe: "ed-journal__detail" }, h("summary", null, "Détail pour l'atelier"), h("p", null, detail)) : null);
+      }));
     }, "du journal")));
   return corps;
 }

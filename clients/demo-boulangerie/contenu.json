@@ -19,6 +19,11 @@
       "titre": "Au Pétrin d'Ernestine — Boulangerie artisanale",
       "description": "Pain au levain naturel, farines d'Alsace et fournée à l'aube. Horaires, commandes et accès.",
       "ordre": ["accroche-1", "presentation-1", "prestations-1", "galerie-1", "avis-1", "horaires-1", "faq-1", "appel-1", "contact-1"]
+    },
+    "mentions-legales": {
+      "titre": "Mentions légales",
+      "description": "Qui édite ce site, qui l'héberge, et ce que deviennent vos données.",
+      "ordre": ["texte-1"]
     }
   },
   "blocs": {
@@ -133,7 +138,22 @@
       "intro": "",
       "texte": "Une commande spéciale, une question sur un produit ? Nous répondons dans la journée, sauf le lundi.",
       "telephone": "01 99 00 12 34",
-      "email": "bonjour@example.com"
+      "email": "bonjour@example.com",
+      "formulaire": true
+    },
+    "texte-1": {
+      "type": "texte",
+      "surtitre": "Site de démonstration",
+      "titre": "Mentions légales",
+      "intro": "Au Pétrin d'Ernestine est une boulangerie fictive, inventée pour montrer ce que peut être un site. Toutes les informations ci-dessous sont fictives, elles aussi.",
+      "paragraphes": [
+        { "titre": "Éditeur du site", "texte": "Nom commercial : Au Pétrin d'Ernestine — entreprise fictive, site de démonstration<br>Entreprise individuelle (EI) fictive — Ernestine Exemple, personne fictive<br>Adresse du siège : 3 place de la Fontaine, Rieddorf (adresse fictive)<br>SIREN ou SIRET : 000 000 000 00000 — entreprise fictive, site de démonstration<br>Immatriculation : aucune — l'entreprise est fictive, elle n'est inscrite ni au Registre national des entreprises (RNE) ni à un RCS<br>TVA : TVA non applicable, article 293 B du CGI (mention donnée à titre d'exemple)<br>Téléphone : 01 99 00 12 34 (numéro réservé à la fiction) — E-mail : bonjour@example.com (adresse fictive)" },
+        { "titre": "Responsable de la publication", "texte": "Ernestine Exemple (personne fictive)" },
+        { "titre": "Hébergement", "texte": "Cloudflare, Inc., 101 Townsend Street, San Francisco, CA 94107, États-Unis.<br>Téléphone : +1 888 993 5273.<br>www.cloudflare.com" },
+        { "titre": "Médiation de la consommation", "texte": "Conformément à l'article L612-1 du Code de la consommation, vous pouvez recourir gratuitement à un médiateur de la consommation : Médiateur Exemple (médiateur fictif, désigné pour la démonstration), 1 rue de l'Exemple, 00000 Nulle-Part, www.example.org." },
+        { "titre": "Propriété intellectuelle", "texte": "Les textes et les illustrations de ce site de démonstration appartiennent à l'atelier qui l'a réalisé. Toute reproduction, même partielle, demande son accord préalable." },
+        { "titre": "Données personnelles", "texte": "Le responsable du traitement de vos données est l'entreprise qui édite ce site, désignée ci-dessus (fictive).<br><br>Quand vous écrivez par le formulaire de contact, nous recevons votre nom, votre adresse e-mail, votre téléphone si vous le donnez, et votre message. Ils servent uniquement à répondre à votre demande. Base légale : les mesures précontractuelles prises à votre demande, ou notre intérêt légitime à vous répondre.<br><br>Ces données ne sont destinées qu'à l'entreprise. Notre hébergeur, Cloudflare, les conserve et nous les achemine pour notre compte, en tant que sous-traitant : il peut les traiter hors de l'Union européenne, avec les garanties prévues par le RGPD. Elles sont gardées un an au plus sur le site.<br><br>Vous pouvez accéder à vos données, les faire rectifier ou effacer, vous opposer à leur traitement, en demander la limitation, ou les recevoir pour les confier à quelqu'un d'autre (portabilité) : écrivez à bonjour@example.com (adresse fictive). Si vous estimez que vos droits ne sont pas respectés, vous pouvez adresser une réclamation à la CNIL (www.cnil.fr).<br><br>Ce site ne dépose aucun cookie et ne fait aucune mesure d'audience publicitaire. Les polices de caractères sont fournies par Google Fonts : pour les afficher, votre navigateur transmet votre adresse IP à Google." }
+      ]
     }
   },
   "pied": {

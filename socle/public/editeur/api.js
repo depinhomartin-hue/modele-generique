@@ -33,6 +33,10 @@ function codeParDefaut(statut) {
 }
 
 const ID_MEDIA = /^[0-9a-f]{32}$/;
+/* L'identifiant d'un message : la clé entière de sa table. Vérifié AVANT
+   l'appel, comme celui d'une photo : rien d'autre n'entre dans l'adresse. */
+const ID_MESSAGE = /^[1-9][0-9]{0,14}$/;
+const refusIntrouvable = () => Promise.reject(new ErreurApi({ statut: 404, erreur: "introuvable" }));
 
 /* Le délai au-delà duquel un appel est abandonné, et traité comme une
    panne du réseau (copie locale, nouvel essai). `fetch` n'en a aucun : sur
@@ -133,6 +137,25 @@ export function creerApi({ fetch: f = (...a) => globalThis.fetch(...a), base = "
     },
     journal: () => appeler("GET", "/admin/api/journal"),
     deconnecterPartout: () => appeler("POST", "/admin/api/deconnecter-partout", { corps: {}, geste: true }),
+
+    /* Les messages du formulaire de contact (spécification 0.3, § 3.2) : les
+       200 plus récents, ou, avec `avant`, les 200 qui précèdent ce message
+       (« Afficher les messages plus anciens », relecture du 3 octobre 2026).
+       L'identifiant est vérifié comme les autres avant d'entrer dans
+       l'adresse. */
+    messages: (avant = null) => {
+      if (avant === null || avant === undefined) return appeler("GET", "/admin/api/messages");
+      if (!ID_MESSAGE.test(String(avant))) return refusIntrouvable();
+      return appeler("GET", "/admin/api/messages?avant=" + Number(avant));
+    },
+    marquerMessage: (id, lu) => {
+      if (!ID_MESSAGE.test(String(id))) return refusIntrouvable();
+      return appeler("POST", "/admin/api/messages/" + Number(id) + "/lu", { corps: { lu: lu === true }, geste: true });
+    },
+    supprimerMessage: (id) => {
+      if (!ID_MESSAGE.test(String(id))) return refusIntrouvable();
+      return appeler("POST", "/admin/api/messages/" + Number(id) + "/supprimer", { corps: {}, geste: true });
+    },
 
     /* L'envoi d'une photo : multipart (l'exception au JSON du contrat), avec
        sa progression. Le navigateur pose lui-même `Origin` sur un POST, ce

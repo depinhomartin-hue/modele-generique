@@ -9,9 +9,15 @@
    Pensée : un champ vidé par mégarde ne doit pas laisser un bouton muet).
 
    Restent écrits dans le code, exprès, les textes qu'on ne voit jamais à
-   l'écran en temps normal (le lien d'évitement « Aller au contenu ») et
-   ceux qui appartiennent à l'atelier (la mention de démonstration). Un
-   réglage qu'on ne peut pas vérifier à l'écran n'est pas un réglage. */
+   l'écran en temps normal (le lien d'évitement « Aller au contenu »), ceux
+   qui appartiennent à l'atelier (la mention de démonstration) et les
+   messages d'erreur du formulaire de contact (formulaire.js), qu'on ne
+   voit qu'après un envoi raté. Un réglage qu'on ne peut pas vérifier à
+   l'écran n'est pas un réglage.
+
+   Le remerciement du formulaire (`contactMerci`), lui, se voit : en
+   édition, la section contact l'affiche sous le formulaire, pour qu'on
+   puisse cliquer dessus (3 octobre 2026). */
 
 import { echapper, ed } from "./outils.js";
 
@@ -19,7 +25,22 @@ export const LIBELLES = {
   menu: "Menu",
   voirPlan: "Voir le plan",
   telephone: "Téléphone",
-  email: "E-mail"
+  email: "E-mail",
+  // Le formulaire de contact (blocs/contact.js).
+  contactNom: "Votre nom",
+  contactEmail: "Votre adresse e-mail",
+  contactTelephone: "Votre téléphone (facultatif)",
+  contactMessage: "Votre message",
+  contactEnvoyer: "Envoyer",
+  contactMerci: "Merci, votre message est bien parti. Nous vous répondons au plus vite.",
+  // La notice ne promet que ce que le site tient : la durée de garde vit
+  // dans les mentions légales, auxquelles elle mène (blocs/contact.js).
+  // « Gardées un an au plus » n'y est plus : écrit sous le bouton, c'était
+  // une promesse que rien ne tenait sur un site calme, où aucune purge ne
+  // passait (relecture du 3 octobre 2026).
+  contactNotice: "Vos coordonnées servent uniquement à répondre à votre message.",
+  // Le lien du bas de page, et celui de la notice du formulaire.
+  mentionsLegales: "Mentions légales"
 };
 
 export function lib(ctx, cle) {

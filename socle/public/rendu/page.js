@@ -18,6 +18,8 @@ import { themeDe, variablesCss, lienPolices, liensPolicesCitees } from "./themes
 import { BLOCS, typeConnu, valeurReglage } from "./registre.js";
 import { lib, libHtml } from "./libelles.js";
 import { riche, liste, ancre } from "./blocs/commun.js";
+import { PAGE_MENTIONS, mentionsPresentes } from "./structure.js";
+import { donneesStructurees, baliseDonneesStructurees, premiereImage } from "./donnees-structurees.js";
 
 export const PAGE_ACCUEIL = "accueil";
 
@@ -270,8 +272,26 @@ function rendrePied(contenu, client, ctx) {
       "</div>" +
       (liens ? '<ul class="pied__liens" role="list">' + liens + "</ul>" : "") +
     "</div>" +
-    '<div class="conteneur pied__bas"><p>© ' + annee + " " + echapper(texteBrut(contenu.site.nom)) + "</p></div>" +
+    '<div class="conteneur pied__bas"><p>© ' + annee + " " + echapper(texteBrut(contenu.site.nom)) + lienMentions(ctx) + "</p></div>" +
     "</footer>";
+}
+
+/* Le lien des MENTIONS LÉGALES est STRUCTUREL : il suit la page
+   `mentions-legales`, et n'est PAS une entrée de `pied.liens`. Une liste
+   modifiable peut se vider par mégarde ; une mention légale doit rester
+   joignable de partout (leçon de Graine de Pensée, 13 septembre 2026).
+   Son libellé se change en cliquant dessus, comme les autres petits mots
+   (`libelles.mentionsLegales`).
+
+   Il n'apparaît que si la page affiche réellement quelque chose
+   (`mentionsPresentes`, structure.js) : une page dont la seule section est
+   masquée gardait son lien, qui menait de chaque page du site à une page
+   vide (relecture du 3 octobre 2026). */
+function lienMentions(ctx) {
+  if (!ctx.mentions) return "";
+  const courante = ctx.pageId === PAGE_MENTIONS ? ' aria-current="page"' : "";
+  return ' · <a class="pied__mentions" href="' + echapper(ctx.mentions) + '"' + courante + ed(ctx, "libelles.mentionsLegales") + ">" +
+    echapper(lib(ctx, "mentionsLegales")) + "</a>";
 }
 
 /* La mention de démonstration appartient à l'ATELIER, pas au contenu :
@@ -326,9 +346,23 @@ export function ancresDeLaPage(contenu, page) {
   return ancres;
 }
 
-export function rendreCorps({ contenu, client, pageId = PAGE_ACCUEIL, edition = false }) {
+/* `formulaire` : l'état d'un envoi du formulaire de contact, quand le
+   serveur rend la page après un POST (`socle/serveur/contact.js`) :
+   `{ bloc, etat: "envoye" | "erreur", valeurs, erreurs }`. Seule la
+   section dont l'identifiant vaut `formulaire.bloc` s'en sert (voir
+   blocs/contact.js) ; les autres se rendent comme d'habitude.
+
+   `mentions` : l'adresse de la page des mentions légales si elle affiche
+   quelque chose (`mentionsPresentes`, structure.js), pour le bas de page
+   et la notice du formulaire. Une page vide ou dont tout est masqué ne
+   reçoit aucun lien : il ne mènerait à rien. */
+export function rendreCorps({ contenu, client, pageId = PAGE_ACCUEIL, edition = false, formulaire = null }) {
   const page = pageDe(contenu, pageId);
-  const ctxBase = { edition, contenu, client, pageId };
+  const ctxBase = {
+    edition, contenu, client, pageId,
+    formulaire: !edition && formulaire && typeof formulaire === "object" ? formulaire : null,
+    mentions: mentionsPresentes(contenu) ? "/" + PAGE_MENTIONS : ""
+  };
   const ancres = ancresDeLaPage(contenu, page);
   /* Le <h1> revient au premier bloc VISIBLE, en édition comme sur le site.
      Un bloc masqué n'est jamais `premier` : il garde en édition le niveau
@@ -365,20 +399,6 @@ export function rendreCorps({ contenu, client, pageId = PAGE_ACCUEIL, edition = 
 }
 
 /* ----- Le document complet ----- */
-/* L'image des réseaux sociaux : la première photo des blocs VISIBLES. Une photo
-   rangée dans une section masquée n'est pas encore publique — elle ne doit
-   pas sortir du site par l'aperçu d'un lien partagé. */
-function premiereImage(contenu, ids) {
-  for (const id of ids) {
-    const b = contenu.blocs[id];
-    const candidats = [b.image].concat(liste(b.images).map((x) => (x ? x.src : "")));
-    for (const src of candidats) {
-      const s = imageSure(src);
-      if (s && !/\.svg$/i.test(s)) return s;   // les réseaux sociaux n'affichent pas les SVG
-    }
-  }
-  return "";
-}
 
 export function titreDePage(contenu, pageId) {
   const page = pageDe(contenu, pageId);
@@ -394,13 +414,18 @@ export function descriptionDePage(contenu, pageId) {
   return d.length > 160 ? d.slice(0, 157).replace(/\s+\S*$/, "") + "…" : d;
 }
 
-export function rendrePage({ contenu, client = {}, pageId = PAGE_ACCUEIL, edition = false, origine = "", chemin = "/", indexable = !client.demo }) {
+export function rendrePage({ contenu, client = {}, pageId = PAGE_ACCUEIL, edition = false, origine = "", chemin = "/", indexable = !client.demo, formulaire = null }) {
   const page = pageDe(contenu, pageId);
   const resolu = themeDe(contenu);
   const titre = titreDePage(contenu, pageId);
   const description = descriptionDePage(contenu, pageId);
   const url = origine ? origine.replace(/\/$/, "") + chemin : "";
   const publics = visibles(contenu, page);
+  // L'image des réseaux sociaux : la première photo des blocs VISIBLES, non
+  // SVG (`premiereImage`, donnees-structurees.js — la même règle sert
+  // l'image donnée à Google). Une photo rangée dans une section masquée
+  // n'est pas encore publique : elle ne sort pas du site par l'aperçu d'un
+  // lien partagé.
   const image = premiereImage(contenu, publics);
   const imageAbsolue = image && origine && image.startsWith("/") ? origine.replace(/\/$/, "") + image : image;
 
@@ -413,7 +438,14 @@ export function rendrePage({ contenu, client = {}, pageId = PAGE_ACCUEIL, editio
     .map((h) => '<link rel="stylesheet" href="' + h + '">').join("");
 
   // Le corps d'abord : il dit quelles polices de titre le contenu cite.
-  const corps = rendreCorps({ contenu, client, pageId, edition });
+  const corps = rendreCorps({ contenu, client, pageId, edition, formulaire });
+
+  /* Les données structurées pour Google, sur l'accueil seulement
+     (donnees-structurees.js). Pas en édition : l'éditeur n'en a que faire,
+     et ce qu'il affiche doit rester la page, rien d'autre. Elles sont
+     écrites même sur une maquette : la page n'est pas indexée (balise et
+     en-tête), et le contrôle peut les relire. */
+  const jsonLd = edition ? "" : baliseDonneesStructurees(donneesStructurees(contenu, { client, origine, pageId }));
 
   const meta = [
     '<meta charset="utf-8">',
@@ -436,7 +468,8 @@ export function rendrePage({ contenu, client = {}, pageId = PAGE_ACCUEIL, editio
     '<link rel="stylesheet" href="' + echapper(lienPolices(resolu)) + '">',
     liensPolicesCitees(corps, resolu).map((h) => '<link rel="stylesheet" href="' + echapper(h) + '">').join(""),
     feuilles,
-    "<style>" + variablesCss(resolu) + "</style>"
+    "<style>" + variablesCss(resolu) + "</style>",
+    jsonLd
   ].filter(Boolean).join("\n");
 
   return "<!doctype html>\n<html lang=\"fr\">\n<head>\n" + meta + "\n</head>\n<body>\n" +

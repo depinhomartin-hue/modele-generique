@@ -457,15 +457,29 @@ const ROUTES_API = [
   [/^medias\/([0-9a-f]{32})\/retirer$/, { POST: { operation: "medias.retirer" } }],
   [/^journal$/, { GET: { operation: "journal" } }],
   [/^export$/, { GET: { operation: "export" } }],
-  [/^deconnecter-partout$/, { POST: { operation: "deconnecter-partout" } }]
+  [/^deconnecter-partout$/, { POST: { operation: "deconnecter-partout" } }],
+  // Les messages du formulaire de contact (socle 0.3.0), par pages de 200
+  // (`?avant=<numéro>` pour les plus anciens).
+  [/^messages$/, { GET: { operation: "messages" } }],
+  [/^messages\/([1-9][0-9]{0,14})\/lu$/, { POST: { operation: "messages.lu", json: true } }],
+  [/^messages\/([1-9][0-9]{0,14})\/supprimer$/, { POST: { operation: "messages.supprimer" } }]
 ];
 
 /* Les paramètres sont recopiés UN PAR UN, jamais le corps en bloc : un
    champ en trop glissé par le navigateur n'atteint pas le Durable Object
    (leçon de Graine de Pensée, où un `auto: true` passé tel quel
    contournait toute une grille de contrôles). */
-function parametres(operation, m, corps) {
+function parametres(operation, m, corps, url) {
   switch (operation) {
+    /* `?avant=<numéro>` : la page des messages plus anciens que lui (voir
+       opMessages). Une valeur mal formée part telle quelle et le Durable
+       Object répond 400 : la prendre pour « pas de paramètre » rendrait la
+       première page à un onglet qui croit lire la suivante. */
+    case "messages": {
+      if (!url.searchParams.has("avant")) return {};
+      const avant = url.searchParams.get("avant");
+      return { avant: /^[1-9][0-9]{0,14}$/.test(avant) ? Number(avant) : avant };
+    }
     // `ecraser` : seulement le vrai booléen `true` (voir opBrouillon).
     case "brouillon": return { contenu: corps.contenu, revision: corps.revision, ecraser: corps.ecraser === true };
     case "publier":
@@ -473,6 +487,9 @@ function parametres(operation, m, corps) {
     case "version": return { id: Number(m[1]) };
     case "reprendre": return { id: Number(m[1]), revision: corps.revision };
     case "medias.retirer": return { id: m[1] };
+    // `lu` tel quel : le Durable Object n'accepte que le vrai booléen.
+    case "messages.lu": return { id: Number(m[1]), lu: corps.lu };
+    case "messages.supprimer": return { id: Number(m[1]) };
     default: return {};
   }
 }
@@ -526,7 +543,7 @@ async function routerApi(cx) {
     corps = objetJson(new TextDecoder().decode(octets));
     if (!corps) return erreurJson(400, "requete_invalide");
   }
-  const res = await appelApi(cx, brut, action.operation, parametres(action.operation, m, corps));
+  const res = await appelApi(cx, brut, action.operation, parametres(action.operation, m, corps, cx.url));
   if (action.operation === "export" && res && res.statut === 200) return reponseExport(cx, res.corps);
   return reponseApi(cx, res);
 }

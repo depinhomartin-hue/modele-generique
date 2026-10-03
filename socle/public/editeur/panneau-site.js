@@ -2,9 +2,9 @@
    Onglet « Site » — pages, menu, bouton, logo, pied de page
    =========================================================
 
-   Ce qui est COMMUN à toutes les pages : la liste des pages, le menu de
-   l'en-tête, son bouton, le logo, les liens du pied et la description du
-   site pour Google. Le texte des liens et du bouton se modifie sur la page
+   Ce qui est COMMUN à toutes les pages : la liste des pages, la page des
+   mentions légales, le menu de l'en-tête, son bouton, le logo, les liens
+   du pied et la description du site pour Google. Le texte des liens et du bouton se modifie sur la page
    (en cliquant dessus, dans l'en-tête ou le pied) ; ici, leur ordre et
    leur destination. */
 
@@ -14,7 +14,43 @@ import { PAGE_ACCUEIL } from "/rendu/page.js";
 import { lireChemin } from "/rendu/structure.js";
 import { texteBrut, imageSure } from "/rendu/outils.js";
 import { listePages, decrireDestination } from "./liens.js";
-import { boutonEnteteAffiche, MAX_PAGES } from "./operations.js";
+import { boutonEnteteAffiche, etatPageMentions, MAX_PAGES } from "./operations.js";
+
+/* La page des mentions légales (socle 0.3.0) : obligatoire pour un
+   professionnel (LCEN), et la seule page que l'éditeur sache créer toute
+   faite. Ce qu'on en dit ici, sans DOM — testé sous Node. L'état vient
+   d'operations.js (`etatPageMentions`), que la publication lit aussi. */
+export function etatMentions(contenu) {
+  return etatPageMentions(contenu);
+}
+
+const lesTrous = (n) => (n === 1 ? "le « [À compléter …] » qui reste" : "les " + n + " « [À compléter …] » qui restent");
+
+export function phraseMentions({ existe, trous = 0, vide = false, masquees = 0, sections = 0 } = {}) {
+  const obligatoires = "Les mentions légales sont obligatoires pour un professionnel : qui édite le site, qui l'héberge, ce que deviennent les données de vos visiteurs.";
+  const regle = obligatoires + " Un lien y mène depuis le bas de chaque page.";
+  if (!existe) return regle + " La page est créée avec un modèle : chaque « [À compléter …] » doit être remplacé par vos informations avant de publier.";
+  /* Une page qui n'affiche RIEN (sa section masquée, ses textes vidés) :
+     on le dit, avec le geste qui la remplit. « Relisez-la quand quelque
+     chose change » laissait croire que tout allait bien, et masquer la
+     section était justement le geste qui faisait taire l'avertissement des
+     « [À compléter » (relecture du 3 octobre 2026). */
+  if (vide) {
+    const pourquoi = masquees === 1 ? "sa section est masquée" : masquees > 1 ? "ses sections sont masquées"
+      : sections ? "ses textes sont vides" : "elle n'a aucune section";
+    // L'œil « Afficher » est dans la barre de la section, sur la page où
+    // mène le bouton juste au-dessus.
+    const geste = masquees === 1 ? "Affichez-la (l'œil « Afficher » de la section)"
+      : masquees > 1 ? "Affichez-les (l'œil « Afficher » de chaque section)"
+      : sections ? "Remplissez-la" : "Ajoutez-y une section « Texte » avec vos informations";
+    return obligatoires + " Mais cette page n'affiche rien pour l'instant : " + pourquoi +
+      ". Tant qu'elle n'affiche rien, vos visiteurs n'ont pas accès à vos mentions légales. " +
+      geste + (trous ? ", remplacez " + lesTrous(trous) + " par vos informations" : "") + ", puis publiez.";
+  }
+  if (trous === 1) return regle + " Sur la page, un « [À compléter …] » reste à remplir : remplacez-le par vos informations avant de publier.";
+  if (trous > 1) return regle + " Sur la page, " + trous + " « [À compléter …] » restent à remplir : remplacez-les par vos informations avant de publier.";
+  return regle + " Relisez-la quand quelque chose change : une adresse, un numéro, un nom.";
+}
 
 export function construireSite(app, ctx) {
   const c = app.etat.contenu;
@@ -58,6 +94,16 @@ export function construireSite(app, ctx) {
     app.ajouterPage(nomPage.value, { auMenu: auMenu.checked });
   });
   corps.push(groupe("Les pages", ul, form));
+
+  /* ----- Les mentions légales -----
+     Un bouton qui CRÉE la page tant qu'elle n'existe pas, puis qui y mène.
+     Elle n'entre pas au menu : son lien est en bas de chaque page. */
+  const mentions = etatMentions(c);
+  corps.push(groupe("Les mentions légales",
+    mentions.existe
+      ? bouton({ libelle: "Voir la page des mentions légales", icone: "oeil", quand: () => app.voirMentionsLegales(), attributs: { "data-cle": "mentions:voir" } })
+      : bouton({ libelle: "Ajouter la page des mentions légales", icone: "ajouter", classe: "ed-bouton--principal", quand: () => app.ajouterMentionsLegales(), attributs: { "data-cle": "mentions:ajouter" } }),
+    aide(phraseMentions(mentions), mentions.trous || mentions.vide ? { classe: "ed-aide ed-aide--note" } : {})));
 
   /* ----- Le menu ----- */
   const descLien = (el) => aide(decrireDestination(c, el && typeof el.vers === "string" ? el.vers : "", PAGE_ACCUEIL) +

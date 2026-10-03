@@ -2,8 +2,12 @@
    Le panneau — la STRUCTURE du site, onglet par onglet
    =========================================================
 
-   340 px à droite sur un grand écran, tiroir sous 900 px. Cinq onglets :
-   Page, Site, Thème, Versions, Compte (spécification § 6.4).
+   340 px à droite sur un grand écran, tiroir sous 900 px. Six onglets :
+   Page, Site, Thème, Messages, Versions, Compte (spécification § 6.4 ;
+   « Messages » depuis le socle 0.3.0, avec la pastille de ses non-lus).
+   Six ne tiennent pas sur un rang de 340 px sans tomber à quatre lettres :
+   ils vont par deux rangs de trois (editeur.css), comme dans Graine de
+   Pensée.
 
    ⚠️ Le panneau se reconstruit après un geste de structure, un changement
    de page ou de section choisie — JAMAIS à chaque lettre tapée sur la page
@@ -17,20 +21,38 @@ import { construirePage } from "./panneau-page.js";
 import { construireSite } from "./panneau-site.js";
 import { construireTheme } from "./panneau-theme.js";
 import { construireVersions, construireCompte } from "./panneau-versions.js";
+import { construireMessages } from "./panneau-messages.js";
+import { libellePastille, phraseNonLus } from "./messages.js";
 import { nomDuBloc } from "/rendu/structure.js";
 
+/* `modifie` : l'onglet change le brouillon, il se tait pendant qu'on
+   regarde une ancienne version. Les messages, eux, se lisent toujours. */
 const ONGLETS = [
   { id: "page", libelle: "Page", construire: construirePage, modifie: true },
   { id: "site", libelle: "Site", construire: construireSite, modifie: true },
   { id: "theme", libelle: "Thème", construire: construireTheme, modifie: true },
+  { id: "messages", libelle: "Messages", construire: construireMessages, pastille: true },
   { id: "versions", libelle: "Versions", construire: construireVersions },
   { id: "compte", libelle: "Compte", construire: construireCompte }
 ];
+
+/* Où se pose le défilement du panneau après une reconstruction : à la même
+   place pour le MÊME onglet (un geste de structure, un message ouvert, une
+   liste rechargée), en haut pour un AUTRE.
+   Relecture du 3 octobre 2026 : le défilement de l'onglet quitté était
+   reporté tel quel sur le nouveau. « Voir les messages », cliqué en bas de
+   l'onglet « Page », ouvrait la liste défilée de 1 124 px : les huit
+   messages les plus récents — ceux que la pastille venait d'annoncer —
+   étaient cachés au-dessus, et on lisait d'abord un message ancien. */
+export function defilementApres(ancien, nouveau, scrollTop) {
+  return ancien !== null && ancien === nouveau && Number.isFinite(scrollTop) ? scrollTop : 0;
+}
 
 export function creerPanneau(app) {
   let onglet = "page";
   let enAttente = false;
   let cleVisee = null;
+  let ongletDessine = null;      // l'onglet que montre le corps du panneau
   const etatLocal = { catalogue: false };
 
   const fermer = bouton({ libelle: "Fermer les outils", icone: "fermer", seuleIcone: true, classe: "ed-panneau__fermer", quand: () => fermerTiroir() });
@@ -40,15 +62,32 @@ export function creerPanneau(app) {
     h("div", { classe: "ed-panneau__tete" }, h("p", { classe: "ed-panneau__marque" }, "Outils"), fermer),
     liste, corps);
 
+  /* La pastille des non-lus : un chiffre à l'écran (caché aux lecteurs
+     d'écran, qui entendraient « Messages 3 » sans savoir de quoi), et la
+     phrase entière dans le nom de l'onglet (« Messages, 3 messages non
+     lus »). */
+  const pastille = { chiffre: null, phrase: null };
   const boutons = ONGLETS.map((o) => {
     const b = h("button", {
       type: "button", role: "tab", id: "ed-onglet-" + o.id, classe: "ed-onglet",
       "aria-controls": "ed-panneau-corps", "aria-selected": "false", tabindex: "-1"
-    }, o.libelle);
+    }, h("span", null, o.libelle));
+    if (o.pastille) {
+      pastille.phrase = h("span", { classe: "ed-cache" });
+      pastille.chiffre = h("span", { classe: "ed-pastille-compte", "aria-hidden": "true", hidden: true });
+      b.append(pastille.phrase, pastille.chiffre);
+    }
     b.addEventListener("click", () => montrer(o.id));
     liste.append(b);
     return b;
   });
+  function majPastille(n) {
+    if (!pastille.chiffre) return;
+    const t = libellePastille(n);
+    pastille.chiffre.textContent = t;
+    pastille.chiffre.hidden = !t;
+    pastille.phrase.textContent = t ? ", " + phraseNonLus(n) : "";
+  }
   // Les flèches passent d'un onglet à l'autre (le motif « onglets » des
   // lecteurs d'écran) ; Tab entre dans le contenu.
   liste.addEventListener("keydown", (e) => {
@@ -70,15 +109,43 @@ export function creerPanneau(app) {
     return !!(a && element.contains(a) && (a.matches("textarea") || (a.matches("input") && /^(text|email|tel|url|search)$/.test(a.type))));
   };
 
+  /* `arrivee` : vrai pendant la construction d'un onglet qu'on vient
+     d'ouvrir, faux quand il se reconstruit sur lui-même. L'onglet
+     « Messages » recharge sa liste à chaque arrivée : c'est en y
+     revenant qu'on s'attend à voir le dernier message. */
   const ctx = {
     etat: etatLocal,
+    arrivee: false,
     viser(cle) { cleVisee = cle; },
     reconstruire: () => reconstruire({ forcer: true })
   };
 
+  /* Un onglet qui, pendant qu'il se construit, déclenche une reconstruction
+     (un chargement qui répond tout de suite, un écouteur pressé) ne doit
+     pas se construire DANS lui-même : la seconde attend la fin de la
+     première, et passe juste après. */
+  let enConstruction = false;
+  let aRefaire = false;
   function reconstruire({ forcer = false } = {}) {
+    if (enConstruction) { aRefaire = true; return; }
     if (!forcer && saisieDansPanneau()) { enAttente = true; return; }
     enAttente = false;
+    // Deux passes au plus : un onglet qui en redemanderait une à chaque
+    // construction ne doit pas figer l'éditeur.
+    for (let passe = 0; passe < 2; passe++) {
+      aRefaire = false;
+      enConstruction = true;
+      try {
+        construireOnglet();
+      } finally {
+        enConstruction = false;
+      }
+      if (!aRefaire) break;
+    }
+    aRefaire = false;
+  }
+
+  function construireOnglet() {
     // Le focus n'est rendu que s'il ÉTAIT dans le panneau (ou perdu avec le
     // bouton retiré). Une clé visée par un geste qui n'a rien reconstruit
     // ne doit pas, plus tard, arracher le focus d'un texte en cours de
@@ -87,7 +154,11 @@ export function creerPanneau(app) {
     const dansPanneau = !!a && (element.contains(a) || a === document.body);
     const cleFocus = dansPanneau ? cleVisee || (element.contains(a) && a.dataset ? a.dataset.cle : null) : null;
     cleVisee = null;
-    const defilement = corps.scrollTop;
+    const defilement = defilementApres(ongletDessine, onglet, corps.scrollTop);
+    ctx.arrivee = ongletDessine !== onglet;
+    // Noté AVANT de construire : une seconde passe (un onglet qui en
+    // redemande une) n'est plus une arrivée, et ne relance rien.
+    ongletDessine = onglet;
     const o = ONGLETS.find((x) => x.id === onglet);
     boutons.forEach((b, i) => {
       const actif = ONGLETS[i].id === onglet;
@@ -111,6 +182,7 @@ export function creerPanneau(app) {
       }
     }
     corps.scrollTop = defilement;
+    ctx.arrivee = false;
     if (cleFocus) rendreFocus(cleFocus);
   }
 
@@ -205,6 +277,7 @@ export function creerPanneau(app) {
     },
     ouvrirTiroir,
     fermerTiroir,
-    estTiroir: () => tiroirPossible.matches
+    estTiroir: () => tiroirPossible.matches,
+    majPastille
   };
 }

@@ -16,7 +16,10 @@
      Object la refusent tous deux) ;
    — chaque appel RPC passe ses arguments et son résultat par un clonage
      structuré : une valeur non transmissible échoue ici comme là-bas ;
-   — seules les méthodes de `METHODES_RPC` existent sur le « stub ». */
+   — seules les méthodes de `METHODES_RPC` existent sur le « stub » ;
+   — une seule alarme par Durable Object (`getAlarm`, `setAlarm`,
+     `deleteAlarm`), qui sonne quand les tests la font sonner
+     (`declencherAlarme`), jamais par un appel du Worker. */
 import { DatabaseSync } from "node:sqlite";
 import { CoeurAtelier, METHODES_RPC } from "../socle/serveur/atelier-coeur.js";
 
@@ -166,10 +169,15 @@ function curseur(lignes, ecrites) {
   };
 }
 
+/* L'alarme d'un Durable Object : une seule à la fois, une heure en
+   millisecondes (ou une `Date`), remplacée par chaque `setAlarm`. Elle ne
+   sonne pas toute seule ici : `fauxEspaceAtelier().declencherAlarme()` la
+   fait sonner si son heure est passée, comme la plateforme le ferait. */
 export function fauxStockageDO() {
   const db = new DatabaseSync(":memory:");
   const total = db.prepare("SELECT total_changes() AS n");
   let profondeur = 0;
+  let alarme = null;
   const sql = {
     exec(requete, ...liaisons) {
       if (typeof requete !== "string") throw new TypeError("sql.exec : la requête doit être une chaîne");
@@ -191,6 +199,15 @@ export function fauxStockageDO() {
   return {
     db,
     sql,
+    // L'heure de l'alarme posée, `null` sans alarme (lecture pour les tests).
+    get alarme() { return alarme; },
+    async getAlarm() { return alarme; },
+    async setAlarm(quand) {
+      const t = quand instanceof Date ? quand.getTime() : quand;
+      if (typeof t !== "number" || !Number.isFinite(t)) throw new TypeError("setAlarm : une heure en millisecondes (ou une Date) est attendue");
+      alarme = t;
+    },
+    async deleteAlarm() { alarme = null; },
     transactionSync(fn) {
       const nom = "t" + profondeur++;
       db.exec("SAVEPOINT " + nom);
@@ -238,7 +255,23 @@ export function fauxEspaceAtelier(env, options = {}) {
       }])));
     },
     // Le Durable Object est évincé de la mémoire ; sa base reste.
-    redemarrer() { coeur = null; }
+    redemarrer() { coeur = null; },
+    /* L'alarme sonne, si elle est posée et que son heure est passée (à
+       l'horloge des tests) : la plateforme l'efface, puis appelle
+       `alarm()` — un Durable Object évincé est réveillé pour ça, sans
+       aucun appel du Worker. Comme `atelier.js`, on délègue au cœur.
+       → vrai si elle a sonné. */
+    alarmes: 0,
+    async declencherAlarme() {
+      const maintenant = typeof options.maintenant === "function" ? options.maintenant() : Date.now();
+      const prevue = stockage.alarme;
+      if (prevue === null || prevue > maintenant) return false;
+      await stockage.deleteAlarm();
+      espace.alarmes++;
+      if (!coeur) coeur = new CoeurAtelier(stockage, env, options);
+      await coeur.alarme();
+      return true;
+    }
   };
   return espace;
 }
@@ -256,7 +289,11 @@ export function fauxCourriel() {
       }
       const from = message && message.from;
       const expediteur = typeof from === "string" ? from : from && from.email;
-      if (!message || typeof message.to !== "string" || !expediteur || typeof message.subject !== "string" || (!message.text && !message.html)) {
+      // `replyTo`, quand il est là : une chaîne ou `{ email, name }`, comme
+      // `from` (forme lue dans miniflare, wrangler 4.147, le 3 octobre 2026).
+      const repondre = message && message.replyTo;
+      const repondreValide = repondre === undefined || typeof repondre === "string" || (!!repondre && typeof repondre.email === "string");
+      if (!message || typeof message.to !== "string" || !expediteur || typeof message.subject !== "string" || (!message.text && !message.html) || !repondreValide) {
         const e = new Error("Message incomplet");
         e.code = "E_VALIDATION_ERROR";
         throw e;

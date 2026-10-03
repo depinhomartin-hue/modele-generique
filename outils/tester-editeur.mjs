@@ -10,7 +10,7 @@
    la racine du disque : un crochet de résolution le ramène au dossier
    `socle/public/rendu/`. Rien d'autre n'est réécrit. */
 import { registerHooks } from "node:module";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const racine = fileURLToPath(new URL("..", import.meta.url));
@@ -33,9 +33,13 @@ const Textes = await import("../socle/public/editeur/textes.js");
 const { creerApi, ErreurApi } = await import("../socle/public/editeur/api.js");
 const PanneauPage = await import("../socle/public/editeur/panneau-page.js");
 const { dimensionsReduites } = await import("../socle/public/editeur/images.js");
-const { valeurDuChamp } = await import("../socle/public/editeur/cadre.js");
+const { valeurDuChamp, soumissionAnnulee, saisieDeFormulaire } = await import("../socle/public/editeur/cadre.js");
+const Messages = await import("../socle/public/editeur/messages.js");
+const PanneauSite = await import("../socle/public/editeur/panneau-site.js");
+const { defilementApres } = await import("../socle/public/editeur/panneau.js");
 const { normaliser, rendreCorps } = await import("../socle/public/rendu/page.js");
-const { lireChemin, descripteurListe } = await import("../socle/public/rendu/structure.js");
+const { lireChemin, descripteurListe, contientUnTrou, compterTrous } = await import("../socle/public/rendu/structure.js");
+const { PAGE_MENTIONS, pageMentionsLegales } = await import("../socle/public/rendu/modeles-pages.js");
 
 const contenuLivre = JSON.parse(readFileSync(racine + "clients/demo-boulangerie/contenu.json", "utf8"));
 const neuf = () => normaliser(JSON.parse(JSON.stringify(contenuLivre)));
@@ -735,6 +739,733 @@ function monter({ reponses, st = fauxStockage(), cle = cleCopie("demo") }) {
   verifier("le panneau propose la note d'un avis (le modèle porte la clé), et un avis neuf naît sans note", !!d && Object.prototype.hasOwnProperty.call(d.modele, "note") && typeof PanneauPage.noteLue === "function" && PanneauPage.noteLue(d.modele.note) === "");
   const n = PanneauPage.noteLue;
   verifier("note d'un avis : de 1 à 5, sinon pas de note", typeof n === "function" && n(5) === "5" && n("4") === "4" && n(4.4) === "4" && n("") === "" && n(0) === "" && n(9) === "" && n(null) === "" && n({ toString() { throw new Error("x"); } }) === "");
+}
+
+/* ===== Socle 0.3.0 : les messages, les mentions légales, le cadre ===== */
+
+/* L'API des messages : les bonnes adresses, les bons corps, et un
+   identifiant vérifié AVANT l'appel (rien d'autre n'entre dans l'adresse). */
+{
+  const vus = [];
+  const api = creerApi({ fetch: async (url, init) => { vus.push({ url, init }); return new Response(url.endsWith("/messages") ? '{"messages":[]}' : '{"ok":true}', { status: 200 }); } });
+  await api.messages();
+  await api.marquerMessage(12, true);
+  await api.marquerMessage("12", "oui");
+  await api.supprimerMessage(12);
+  verifier("API messages : la liste", vus[0] && vus[0].url === "/admin/api/messages" && vus[0].init.method === "GET");
+  verifier("API messages : marquer lu", vus[1] && vus[1].url === "/admin/api/messages/12/lu" && vus[1].init.method === "POST" && vus[1].init.body === '{"lu":true}' && vus[1].init.headers["Content-Type"] === "application/json");
+  verifier("API messages : seul le vrai `true` marque lu", vus[2] && vus[2].init.body === '{"lu":false}');
+  verifier("API messages : supprimer", vus[3] && vus[3].url === "/admin/api/messages/12/supprimer" && vus[3].init.method === "POST" && vus[3].init.body === "{}");
+  const refuse = async (f) => { try { await f(); return false; } catch (e) { return e instanceof ErreurApi && e.statut === 404; } };
+  const tous = await Promise.all([
+    refuse(() => api.supprimerMessage("12/../../brouillon")), refuse(() => api.supprimerMessage(0)),
+    refuse(() => api.marquerMessage(-3, true)), refuse(() => api.marquerMessage(1.5, true)), refuse(() => api.supprimerMessage("012"))
+  ]);
+  verifier("API messages : identifiant douteux refusé sans appel", tous.every(Boolean) && vus.length === 4, JSON.stringify(tous));
+}
+
+/* La liste reçue du serveur, mise en forme sûre. */
+{
+  const N = Messages.normaliserMessages({ messages: [
+    { id: 3, quand: 30, nom: "<b>Zoé</b>", email: "z@example.fr", telephone: "", message: "Bonjour", lu: false, page: "accueil" },
+    { id: "7", quand: 70, nom: 5, lu: 1 },
+    { id: 0 }, { id: -1 }, { id: "x" }, null, [1],
+    { id: 3, quand: 99, nom: "Doublon" },
+    { id: 9, quand: 70, lu: "true", message: { toString() { throw new Error("piège"); } } }
+  ] });
+  verifier("messages : du plus récent au plus ancien, sans identifiant douteux ni doublon", N.map((m) => m.id).join(",") === "9,7,3", N.map((m) => m.id).join(","));
+  verifier("messages : un champ qui n'est pas du texte devient vide", N.find((m) => m.id === 7).nom === "" && N.find((m) => m.id === 9).message === "");
+  verifier("messages : « lu » seulement pour true (ou le 1 d'une colonne)", N.find((m) => m.id === 7).lu === true && N.find((m) => m.id === 9).lu === false && N.find((m) => m.id === 3).lu === false);
+  verifier("messages : le texte du visiteur est gardé tel quel (il sera posé en texte)", N.find((m) => m.id === 3).nom === "<b>Zoé</b>");
+  verifier("messages : réponse abîmée → liste vide", Messages.normaliserMessages(null).length === 0 && Messages.normaliserMessages({ messages: "x" }).length === 0);
+  const beaucoup = { messages: Array.from({ length: 250 }, (_, i) => ({ id: i + 1, quand: i })) };
+  verifier("messages : jamais plus de 200", Messages.normaliserMessages(beaucoup).length === Messages.MAX_MESSAGES && Messages.MAX_MESSAGES === 200);
+}
+
+/* « Répondre » et l'appel : fabriqués, jamais recopiés. */
+{
+  const L = Messages.lienRepondre;
+  verifier("Répondre : l'adresse et l'objet tout prêt", L("marie@example.fr", "Boulangerie <em>Muller</em>") === "mailto:marie@example.fr?subject=" + encodeURIComponent("Votre message sur Boulangerie Muller"), String(L("marie@example.fr", "Boulangerie <em>Muller</em>")));
+  verifier("Répondre : sans nom de site, une formule neutre", L("marie@example.fr", "").endsWith(encodeURIComponent("Votre message sur notre site")));
+  const piege = L("a@b.fr?bcc=espion@example.fr", "Site");
+  verifier("Répondre : une adresse piégée n'ajoute ni copie cachée ni texte", !!piege && piege.split("?").length === 2 && !/[?&]bcc=/i.test(piege), String(piege));
+  const piege2 = L("moi@exemple.fr&body=Virez%20500%20euros", "Site");
+  verifier("Répondre : « &body= » encodé, donc inerte", !!piege2 && !/[?&]body=/i.test(piege2) && piege2.indexOf("&") === -1, String(piege2));
+  verifier("Répondre : pas d'adresse, pas de lien", [null, "", "pas une adresse", "a b@c.fr", "a@b", "@b.fr", "a@", "a@b.fr\nBcc: x@y.fr", "a@" + "b".repeat(260) + ".fr"].every((x) => L(x, "S") === null));
+  verifier("Répondre : un caractère que l'encodage refuse ne fait pas planter", L("a\uD800@b.fr", "S") === null);
+  verifier("appel : la règle du site", Messages.lienAppel("03 89 12 34 56") === "tel:0389123456" && Messages.lienAppel("+41 22 123 45 67") === "tel:+41221234567");
+  verifier("appel : ce qui n'est pas un numéro ne fait pas de lien", Messages.lienAppel("appelez-moi") === null && Messages.lienAppel("javascript:alert(1)") === null && Messages.lienAppel(null) === null);
+}
+
+/* Ce que la liste affiche. */
+{
+  const A = Messages.apercuMessage;
+  verifier("aperçu : sur une ligne", A("Bonjour,\n\nje voudrais   un gâteau.") === "Bonjour, je voudrais un gâteau.");
+  const long = A("Bonjour je voudrais commander un grand kougelhopf pour dimanche prochain avec des amandes et du sucre glace merci beaucoup");
+  verifier("aperçu : coupé sur un mot, avec « … »", Array.from(long).length <= 90 && long.endsWith("…") && !/\s…$/.test(long), long);
+  verifier("aperçu : les caractères qui retournent le texte sont retirés", A("Bon\u202Ejour") === "Bonjour");
+  verifier("nom vide : « Sans nom »", Messages.nomVisiteur("  ") === "Sans nom" && Messages.nomVisiteur("Zoé") === "Zoé");
+  const P = Messages.libellePastille;
+  verifier("pastille : rien à zéro, le chiffre, puis « 99+ »", P(0) === "" && P(3) === "3" && P(99) === "99" && P(100) === "99+" && P(-2) === "" && P(1.5) === "" && P("4") === "");
+  verifier("non-lus en phrase", Messages.phraseNonLus(1) === "1 message non lu" && Messages.phraseNonLus(4) === "4 messages non lus" && Messages.phraseNonLus(0) === "aucun message non lu");
+  verifier("résumé de la liste", Messages.resumeMessages([{ lu: true }, { lu: false }]) === "2 messages, dont 1 non lu." && Messages.resumeMessages([{ lu: true }]) === "1 message." && Messages.resumeMessages([]) === "Aucun message.");
+}
+
+/* La boîte : lu à l'ouverture, non lu, supprimer, compte des non-lus. */
+function fausseApiMessages(serveur) {
+  const echecs = { lu: [], supprimer: [], messages: [] };
+  const appels = [];
+  const introuvable = () => new ErreurApi({ statut: 404, erreur: "introuvable" });
+  return {
+    serveur, echecs, appels,
+    async messages() {
+      appels.push(["messages"]);
+      const e = echecs.messages.shift();
+      if (e) throw e;
+      return { messages: serveur.map((m) => Object.assign({}, m)) };
+    },
+    async marquerMessage(id, lu) {
+      appels.push(["lu", id, lu]);
+      const e = echecs.lu.shift();
+      if (e) throw e;
+      const m = serveur.find((x) => x.id === id);
+      if (!m) throw introuvable();
+      m.lu = lu;
+      return { ok: true };
+    },
+    async supprimerMessage(id) {
+      appels.push(["supprimer", id]);
+      const e = echecs.supprimer.shift();
+      if (e) throw e;
+      const i = serveur.findIndex((x) => x.id === id);
+      if (i < 0) throw introuvable();
+      serveur.splice(i, 1);
+      return { ok: true };
+    }
+  };
+}
+{
+  const api = fausseApiMessages([
+    { id: 1, quand: 10, nom: "Ancien", email: "a@example.fr", message: "Vieux", lu: true, page: "accueil" },
+    { id: 2, quand: 20, nom: "Marie", email: "m@example.fr", message: "Bonjour", lu: false, page: "accueil" },
+    { id: 3, quand: 30, nom: "Paul", email: "p@example.fr", message: "Salut", lu: false, page: "accueil" }
+  ]);
+  let t = 1000;
+  const boite = Messages.creerBoiteMessages({ api, nonLus: 5, maintenant: () => t });
+  let prevenu = 0;
+  boite.ecouter(() => prevenu++);
+  // Le compte du démarrage vaut un chargement récent (`age` 0) : la
+  // minuterie ne repart pas au serveur juste après l'ouverture ; l'onglet,
+  // lui, charge la liste (`doitCharger`).
+  verifier("boîte : au démarrage, le compte du serveur", boite.nonLus === 5 && boite.liste === null && boite.doitCharger() && boite.age() === 0);
+  const p = boite.charger();
+  verifier("boîte : charger ne prévient pas en partant (le panneau se construit)", prevenu === 0 && boite.enCours && !boite.doitCharger());
+  verifier("boîte : deux chargements à la fois, un seul appel", boite.charger() === p);
+  await p;
+  verifier("boîte : chargée, du plus récent au plus ancien, compte recalculé", boite.liste.map((m) => m.id).join(",") === "3,2,1" && boite.nonLus === 2 && prevenu === 1 && api.appels.filter((a) => a[0] === "messages").length === 1);
+  verifier("boîte : fraîche, elle ne repart pas au serveur", !boite.doitCharger());
+  t += Messages.FRAICHEUR_MS + 1;
+  verifier("boîte : plus d'une minute, elle se recharge à l'ouverture de l'onglet", boite.doitCharger());
+
+  const ouverture = boite.ouvrir(2);
+  verifier("ouvrir : le message est lu tout de suite à l'écran", boite.estOuvert(2) && boite.liste.find((m) => m.id === 2).lu === true && boite.nonLus === 1);
+  await ouverture;
+  verifier("ouvrir : le serveur l'apprend", api.appels.some((a) => a[0] === "lu" && a[1] === 2 && a[2] === true) && api.serveur.find((m) => m.id === 2).lu === true);
+  const avant = api.appels.length;
+  await boite.ouvrir(1);
+  verifier("ouvrir un message déjà lu : aucun appel", api.appels.length === avant && boite.estOuvert(1));
+  boite.fermer(1);
+  verifier("fermer un message", !boite.estOuvert(1));
+
+  const nonLu = await boite.marquerNonLu(2);
+  verifier("marquer comme non lu : refermé, non lu, compté, et le serveur le sait", nonLu.ok && !boite.estOuvert(2) && boite.liste.find((m) => m.id === 2).lu === false && boite.nonLus === 2 && api.serveur.find((m) => m.id === 2).lu === false);
+
+  api.echecs.lu.push(new ErreurApi({ statut: 0, erreur: "reseau" }));
+  const rate = await boite.ouvrir(3);
+  verifier("marque refusée : le message redevient non lu, l'erreur remonte", !rate.ok && rate.erreur.erreur === "reseau" && boite.liste.find((m) => m.id === 3).lu === false && boite.nonLus === 2 && boite.estOuvert(3));
+
+  const suppr = await boite.supprimer(3);
+  verifier("supprimer : retiré de la liste et du serveur, compte suivi", suppr.ok && !boite.liste.some((m) => m.id === 3) && !boite.estOuvert(3) && boite.nonLus === 1 && !api.serveur.some((m) => m.id === 3));
+  api.serveur.splice(api.serveur.findIndex((m) => m.id === 1), 1);
+  const ailleurs = await boite.supprimer(1);
+  verifier("supprimé depuis un autre appareil : retiré quand même, et on le dit", ailleurs.ok && ailleurs.introuvable && !boite.liste.some((m) => m.id === 1));
+  api.echecs.supprimer.push(new ErreurApi({ statut: 503, erreur: "indisponible" }));
+  const panne = await boite.supprimer(2);
+  verifier("suppression en panne : le message reste", !panne.ok && boite.liste.some((m) => m.id === 2));
+  verifier("sans compte du serveur, la liste fait foi", boite.nonLus === 1 && boite.total === null && boite.tronquee === false && !boite.peutChargerPlusAnciens);
+}
+{
+  // Un écouteur en panne (un défaut d'affichage) n'empêche pas les autres
+  // d'être prévenus. La panne est écrite dans la console : on la fait taire
+  // le temps de l'essai.
+  const boite = Messages.creerBoiteMessages({ api: { async messages() { return { messages: [] }; } } });
+  let prevenu = 0;
+  boite.ecouter(() => { throw new Error("écouteur en panne"); });
+  boite.ecouter(() => prevenu++);
+  const ecrire = console.error;
+  console.error = () => {};
+  try { await boite.charger(); } finally { console.error = ecrire; }
+  verifier("boîte : un écouteur en panne n'empêche pas les autres", prevenu === 1);
+}
+{
+  // Une liste rechargée pendant qu'une marque « lu » voyage : le serveur dit
+  // encore « non lu », mais le message est ouvert sous les yeux de l'artisan.
+  const serveur = [{ id: 5, quand: 1, nom: "A", lu: false }];
+  let liberer = null;
+  const api = {
+    async messages() { return { messages: serveur.map((m) => Object.assign({}, m)) }; },
+    marquerMessage(id, lu) { return new Promise((r) => { liberer = () => { serveur[0].lu = lu; r({ ok: true }); }; }); },
+    async supprimerMessage() { return { ok: true }; }
+  };
+  const boite = Messages.creerBoiteMessages({ api });
+  await boite.charger();
+  const p = boite.ouvrir(5);
+  await boite.charger();
+  verifier("rechargée pendant une marque en route : le message ouvert reste lu", boite.liste[0].lu === true && boite.estOuvert(5) && boite.nonLus === 0);
+  if (liberer) liberer();
+  await p;
+}
+{
+  const api = { async messages() { throw new ErreurApi({ statut: 0, erreur: "reseau" }); } };
+  let t = 0;
+  const boite = Messages.creerBoiteMessages({ api, nonLus: 2, maintenant: () => t });
+  t = 5;
+  const r = await boite.charger();
+  verifier("chargement en panne : l'erreur est gardée, le compte du serveur aussi", !r.ok && boite.erreur && boite.erreur.erreur === "reseau" && boite.liste === null && boite.nonLus === 2);
+  verifier("chargement en panne : pas de relance à chaque reconstruction", !boite.doitCharger());
+}
+
+/* ----- Relecture du 3 octobre 2026 : la liste au-delà de 200 messages -----
+   Un faux serveur PAGINÉ, comme celui du socle 0.3.0 : les 200 plus
+   récents, ou ceux d'avant `avant`, avec les comptes de toute la boîte. */
+function fausseApiPaginee(serveur, { paginee = true, comptes = true } = {}) {
+  const appels = [];
+  const introuvable = () => new ErreurApi({ statut: 404, erreur: "introuvable" });
+  return {
+    serveur, appels,
+    async messages(avant = null) {
+      appels.push(avant);
+      const tries = serveur.slice().sort((a, b) => b.id - a.id);
+      const reste = paginee && avant !== null ? tries.filter((m) => m.id < avant) : tries;
+      const r = { messages: reste.slice(0, 200).map((m) => Object.assign({}, m)) };
+      if (comptes) Object.assign(r, { total: serveur.length, nonLus: serveur.filter((m) => !m.lu).length, suite: reste.length > 200 });
+      return r;
+    },
+    async marquerMessage(id, lu) {
+      const m = serveur.find((x) => x.id === id);
+      if (!m) throw introuvable();
+      m.lu = lu;
+      return { ok: true };
+    },
+    async supprimerMessage(id) {
+      const i = serveur.findIndex((x) => x.id === id);
+      if (i < 0) throw introuvable();
+      serveur.splice(i, 1);
+      return { ok: true };
+    }
+  };
+}
+{
+  const L = Messages.lireReponseMessages;
+  const r = L({ messages: [{ id: 5, quand: 1 }], total: 201, nonLus: 7, suite: true });
+  verifier("réponse paginée : la liste, les comptes, la suite", r.liste.length === 1 && r.total === 201 && r.nonLus === 7 && r.suite === true);
+  verifier("réponse paginée : « suite » écrite par l'identifiant d'où repartir, ou absente",
+    L({ messages: [], suite: 42 }).suite === true && L({ messages: [], suite: false }).suite === false && L({ messages: [], suite: null }).suite === false && L({ messages: [] }).suite === null);
+  verifier("réponse paginée : un compte douteux est ignoré", L({ messages: [], total: -1, nonLus: "3" }).total === null && L({ messages: [], total: 1.5 }).total === null &&
+    L({ messages: [], nonLus: "3" }).nonLus === null && L(null).total === null && L(null).liste.length === 0);
+}
+{
+  const vus = [];
+  const api = creerApi({ fetch: async (url) => { vus.push(url); return new Response('{"messages":[]}', { status: 200 }); } });
+  await api.messages();
+  await api.messages(1234);
+  await api.messages("56");
+  let refus = false;
+  try { await api.messages("12&x=1"); } catch (e) { refus = e instanceof ErreurApi && e.statut === 404; }
+  verifier("API messages : les plus anciens par « ?avant= », identifiant vérifié avant l'appel",
+    vus.join(" ") === "/admin/api/messages /admin/api/messages?avant=1234 /admin/api/messages?avant=56" && refus, vus.join(" "));
+}
+{
+  // Le scénario de la relecture : la cliente écrit, puis deux jours de
+  // robots (100 par jour, la limite du site). 201 messages, tous non lus.
+  const serveur = [{ id: 1, quand: 1, nom: "Marie Dupont", email: "marie@example.fr", message: "La pièce montée du mariage du 14.", lu: false }];
+  for (let i = 2; i <= 201; i++) serveur.push({ id: i, quand: i, nom: "Promo SEO " + i, email: "seo" + i + "@spam.example", message: "Boostez votre référencement", lu: false });
+  const api = fausseApiPaginee(serveur);
+  const boite = Messages.creerBoiteMessages({ api, nonLus: 201 });
+  await boite.charger();
+  const marie = () => boite.liste.some((m) => m.nom === "Marie Dupont");
+  verifier("déluge : 200 messages affichés, celui de Marie n'en fait pas partie", boite.liste.length === 200 && !marie());
+  verifier("déluge : la pastille garde le compte du serveur, 201", boite.nonLus === 201 && boite.total === 201, boite.nonLus + " / " + boite.total);
+  verifier("déluge : la liste se sait coupée, et peut aller plus loin", boite.tronquee && boite.peutChargerPlusAnciens);
+  const resume = Messages.resumeMessages(boite.liste, boite);
+  const note = Messages.phraseListeCoupee({ affiches: boite.liste.length, total: boite.total, peutCharger: boite.peutChargerPlusAnciens });
+  verifier("déluge : le résumé dit 201, la note dit 200 sur 201, le bouton et où trouver le reste",
+    resume === "201 messages, dont 201 non lus." && /Seuls les 200 plus récents sont affichés \(sur 201\)/.test(note) &&
+    note.includes("« " + Messages.LIBELLE_PLUS_ANCIENS + " »") && Messages.LIBELLE_PLUS_ANCIENS === "Afficher les messages plus anciens" && /onglet « Compte »/.test(note), resume + " | " + note);
+  verifier("sans bouton, la note ne le promet pas", !/Afficher les messages plus anciens/.test(Messages.phraseListeCoupee({ affiches: 200, total: 201, peutCharger: false })));
+  /* Contrôle du 3 octobre 2026 : la copie de l'onglet « Compte » n'emporte
+     que les 2 000 plus récents (atelier-coeur.js). « Les contient tous »
+     n'est dit que lorsque c'est vrai. */
+  const coeurSrc = readFileSync(racine + "socle/serveur/atelier-coeur.js", "utf8");
+  const exportes = /const MESSAGES_EXPORTES = (\d+);/.exec(coeurSrc);
+  verifier("la limite de l'export est la même côté éditeur et côté serveur", !!exportes && Number(exportes[1]) === Messages.MESSAGES_EXPORTES, exportes && exportes[1]);
+  const grosse = Messages.phraseListeCoupee({ affiches: 200, total: 36500, peutCharger: true });
+  verifier("au-delà de 2 000 messages, la note ne promet plus que la copie les contient tous",
+    !/les contient tous/.test(grosse) && grosse.includes("contient les 2 000 plus récents") && grosse.includes("(sur 36 500)") &&
+    /les contient tous/.test(Messages.phraseListeCoupee({ affiches: 200, total: 2000, peutCharger: true })), grosse);
+  const r = await boite.chargerPlusAnciens();
+  verifier("plus anciens : demandés depuis le plus petit identifiant affiché", api.appels.length === 2 && api.appels[0] === null && api.appels[1] === 2, JSON.stringify(api.appels));
+  verifier("plus anciens : le message de Marie arrive, en bas de la liste", r.ok && r.ajoutes === 1 && r.premier === 1 && marie() && boite.liste[boite.liste.length - 1].id === 1);
+  verifier("plus anciens : plus rien de coupé, le compte n'a pas bougé", !boite.tronquee && !boite.peutChargerPlusAnciens && boite.total === 201 && boite.nonLus === 201 &&
+    Messages.resumeMessages(boite.liste, boite) === "201 messages, dont 201 non lus.");
+  await boite.ouvrir(1);
+  verifier("ouvrir un message d'une page plus ancienne : la pastille baisse d'un", boite.nonLus === 200 && serveur.find((m) => m.id === 1).lu === true);
+  await boite.supprimer(150);
+  verifier("supprimer un non-lu : total et non-lus baissent d'un", boite.total === 200 && boite.nonLus === 199);
+  const deux = boite.chargerPlusAnciens();
+  verifier("plus anciens : deux clics, un seul appel", boite.chargerPlusAnciens() === deux);
+  await deux;
+}
+{
+  // 250 messages, le seul non-lu tout en bas.
+  const serveur = [];
+  for (let i = 1; i <= 250; i++) serveur.push({ id: i, quand: i, nom: "V" + i, lu: i !== 1 });
+  const api = fausseApiPaginee(serveur);
+  const boite = Messages.creerBoiteMessages({ api });
+  await boite.charger();
+  verifier("un non-lu hors de la liste compte sur la pastille", boite.liste.length === 200 && boite.nonLus === 1 && boite.total === 250 && boite.tronquee);
+  await boite.chargerPlusAnciens();
+  serveur.push({ id: 251, quand: 251, nom: "Nouveau", lu: false });
+  await boite.charger({ discret: true });
+  verifier("un rafraîchissement garde les messages plus anciens déjà affichés", boite.liste.length === 251 && boite.liste[0].id === 251 &&
+    boite.liste.some((m) => m.id === 1) && !boite.tronquee && boite.nonLus === 2, boite.liste.length + " / " + boite.nonLus);
+  for (let i = 252; i <= 460; i++) serveur.push({ id: i, quand: i, nom: "V" + i, lu: true });
+  await boite.charger();
+  verifier("plus de 200 messages arrivés entre-temps : on repart de la première page, sans trou",
+    boite.liste.length === 200 && boite.liste[0].id === 460 && boite.liste[199].id === 261 && boite.tronquee && boite.total === 460 && boite.nonLus === 2);
+}
+{
+  // Une marque « lu » en route pendant un rechargement : le serveur compte
+  // encore ce message non lu, la boîte ne le compte pas deux fois.
+  const serveur = [{ id: 1, quand: 1, nom: "A", lu: false }, { id: 2, quand: 2, nom: "B", lu: false }];
+  let liberer = null;
+  const api = fausseApiPaginee(serveur);
+  api.marquerMessage = (id, lu) => new Promise((r) => { liberer = () => { serveur.find((m) => m.id === id).lu = lu; r({ ok: true }); }; });
+  const boite = Messages.creerBoiteMessages({ api });
+  await boite.charger();
+  const p = boite.ouvrir(2);
+  await boite.charger();
+  verifier("marque en route pendant un rechargement : comptée une seule fois", boite.nonLus === 1 && boite.liste.find((m) => m.id === 2).lu === true, String(boite.nonLus));
+  liberer();
+  await p;
+  await boite.charger();
+  verifier("…et toujours une fois après son arrivée", boite.nonLus === 1);
+}
+{
+  const serveur = [];
+  for (let i = 1; i <= 230; i++) serveur.push({ id: i, quand: i, lu: false });
+  const boite = Messages.creerBoiteMessages({ api: fausseApiPaginee(serveur, { paginee: false, comptes: false }), nonLus: 230 });
+  await boite.charger();
+  verifier("serveur sans comptes : la liste fait foi, rien n'est promis", boite.liste.length === 200 && boite.nonLus === 200 && boite.total === null && !boite.tronquee && !boite.peutChargerPlusAnciens);
+}
+{
+  // Un serveur qui compte mais ignore `avant` : le bouton ne tourne pas à vide.
+  const serveur = [];
+  for (let i = 1; i <= 230; i++) serveur.push({ id: i, quand: i, lu: true });
+  const boite = Messages.creerBoiteMessages({ api: fausseApiPaginee(serveur, { paginee: false }) });
+  await boite.charger();
+  const r = await boite.chargerPlusAnciens();
+  verifier("serveur qui ignore « avant » : rien d'ajouté, le bouton disparaît, la note reste", r.ok && r.ajoutes === 0 && boite.liste.length === 200 && boite.tronquee && !boite.peutChargerPlusAnciens);
+}
+{
+  /* Contrôle du 3 octobre 2026. Des messages arrivent EN HAUT entre le
+     premier chargement et « Afficher les messages plus anciens » : le compte
+     du serveur dépasse alors la liste, mais rien de plus ancien ne reste. La
+     note annonçait « Seuls les 250 plus récents (sur 255) » et le bouton ne
+     ramenait rien ; ce clic sans résultat retirait le bouton pour toute la
+     session, même après un déluge qui recoupait la liste. */
+  const serveur = [];
+  for (let i = 1; i <= 250; i++) serveur.push({ id: i, quand: i, nom: "V" + i, lu: true });
+  const api = fausseApiPaginee(serveur);
+  const boite = Messages.creerBoiteMessages({ api });
+  await boite.charger();
+  for (let i = 251; i <= 255; i++) serveur.push({ id: i, quand: i, nom: "Nouveau " + i, lu: false });
+  await boite.chargerPlusAnciens();
+  verifier("nouveaux arrivés en haut : la liste n'est pas dite coupée par le bas, pas de bouton qui ne ramène rien",
+    boite.liste.length === 250 && boite.total === 255 && boite.nonLus === 5 && !boite.tronquee && !boite.peutChargerPlusAnciens,
+    boite.liste.length + " / " + boite.total + " / " + boite.tronquee + " / " + boite.peutChargerPlusAnciens);
+  await boite.charger({ discret: true });
+  verifier("…et le rechargement suivant les apporte", boite.liste.length === 255 && boite.liste[0].id === 255 && !boite.tronquee);
+
+  // Des plus anciens supprimés depuis un autre appareil : le clic ne ramène
+  // rien, le bouton s'en va — puis REVIENT quand le bas de la liste bouge.
+  const s2 = [];
+  for (let i = 1; i <= 250; i++) s2.push({ id: i, quand: i, nom: "V" + i, lu: true });
+  const api2 = fausseApiPaginee(s2);
+  const b2 = Messages.creerBoiteMessages({ api: api2 });
+  await b2.charger();
+  s2.splice(0, 50);
+  const vide = await b2.chargerPlusAnciens();
+  verifier("plus anciens supprimés ailleurs : rien d'ajouté, ni bouton ni liste dite coupée", vide.ok && vide.ajoutes === 0 && !b2.peutChargerPlusAnciens && !b2.tronquee);
+  for (let i = 251; i <= 600; i++) s2.push({ id: i, quand: i, nom: "Robot " + i, lu: false });
+  await b2.charger({ discret: true });
+  verifier("le bas de la liste a bougé (350 de plus) : le bouton revient", b2.liste.length === 200 && b2.tronquee && b2.peutChargerPlusAnciens,
+    b2.tronquee + " / " + b2.peutChargerPlusAnciens);
+  const suite = await b2.chargerPlusAnciens();
+  verifier("…et ramène bien la suite", suite.ok && suite.ajoutes === 200 && b2.liste.length === 400 && b2.tronquee && b2.peutChargerPlusAnciens, suite.ajoutes + " / " + b2.liste.length);
+}
+
+/* ----- La pastille se met à jour toute seule (relecture du 3 octobre 2026) ----- */
+{
+  const F = Messages.fautRafraichir;
+  const M = Messages.RAFRAICHIR_MESSAGES_MS;
+  verifier("pastille : toutes les deux minutes au plus", M === 2 * 60 * 1000);
+  verifier("pastille : visible depuis plus de deux minutes, ou jamais chargée → on recharge", F({ visible: true, age: M + 1, enCours: false }) && F({ visible: true, age: Infinity, enCours: false }));
+  verifier("pastille : moins de deux minutes → non", !F({ visible: true, age: M - 1000, enCours: false }));
+  verifier("pastille : page cachée, ou chargement en cours → jamais", !F({ visible: false, age: 2 * 3600e3, enCours: false }) && !F({ visible: true, age: 2 * 3600e3, enCours: true }) && !F({}));
+  verifier("pastille : au retour sur l'onglet, dès quelques secondes", F({ visible: true, age: Messages.RETOUR_MIN_MS + 1, enCours: false, retour: true }) &&
+    !F({ visible: true, age: 1000, enCours: false, retour: true }) && !F({ visible: false, age: Infinity, enCours: false, retour: true }));
+  // Deux heures au premier plan, la minuterie de l'éditeur toutes les 30 s,
+  // une cliente qui écrit à la cinquième minute.
+  let t = 1e9;
+  const debut = t;
+  const serveur = [];
+  const api = fausseApiPaginee(serveur);
+  const boite = Messages.creerBoiteMessages({ api, nonLus: 0, maintenant: () => t });
+  let pastille = null;
+  boite.ecouter(() => { pastille = boite.nonLus; });
+  for (let s = 0; s <= 2 * 3600; s += 30) {
+    t = debut + s * 1000;
+    if (s === 5 * 60) serveur.push({ id: 1, quand: t, nom: "Cliente", lu: false });
+    if (F({ visible: true, age: boite.age(), enCours: boite.enCours })) await boite.charger({ discret: true });
+  }
+  verifier("pastille : deux heures au premier plan, le message de 10 h 05 y arrive", pastille === 1 && boite.nonLus === 1);
+  verifier("pastille : jamais plus d'un appel par tranche de deux minutes", api.appels.length >= 40 && api.appels.length <= 60, String(api.appels.length));
+  const src = readFileSync(racine + "socle/public/editeur/application.js", "utf8");
+  verifier("pastille : l'éditeur a sa minuterie, réglée par messages.js", /setInterval\(/.test(src) && /fautRafraichir\(/.test(src) && /charger\(\{ discret: true \}\)/.test(src) &&
+    !/const RAFRAICHIR_MESSAGES_MS/.test(src));
+}
+{
+  // La minuterie ne redessine rien pour rien (le focus serait rendu, un
+  // lecteur d'écran le relirait toutes les deux minutes).
+  const serveur = [{ id: 1, quand: 1, lu: false }];
+  const boite = Messages.creerBoiteMessages({ api: fausseApiPaginee(serveur) });
+  let prevenu = 0;
+  boite.ecouter(() => prevenu++);
+  await boite.charger();
+  const n0 = prevenu;
+  const p = boite.charger({ discret: true });
+  verifier("minuterie : son chargement ne s'affiche pas", boite.enCours && !boite.chargementAffiche);
+  await p;
+  verifier("minuterie : rien de changé, rien de redessiné", prevenu === n0);
+  serveur.push({ id: 2, quand: 2, lu: false });
+  await boite.charger({ discret: true });
+  verifier("minuterie : un nouveau message redessine, et la pastille monte", prevenu === n0 + 1 && boite.nonLus === 2);
+  const q = boite.charger({ discret: true });
+  boite.charger();
+  verifier("un chargement demandé rejoint celui de la minuterie, et s'affiche", boite.chargementAffiche);
+  await q;
+  verifier("…et redessine à l'arrivée, même sans changement", prevenu === n0 + 2);
+}
+
+/* ----- Un chargement raté se dit (relecture du 3 octobre 2026) ----- */
+{
+  const e = new ErreurApi({ statut: 0, erreur: "reseau" });
+  const P = Messages.phraseEchecChargement;
+  verifier("échec : une liste déjà là « n'a pas pu être mise à jour », avec la cause", typeof P === "function" &&
+    P(e, { listeDejaLa: true }) === "La liste n'a pas pu être mise à jour : elle peut ne pas montrer les tout derniers messages. Pas de connexion à Internet pour l'instant. Vérifiez votre connexion, puis réessayez.");
+  verifier("échec : sans liste, « les messages n'ont pas pu être chargés »", typeof P === "function" && P(e, { listeDejaLa: false }).startsWith("Les messages n'ont pas pu être chargés. Pas de connexion"));
+}
+
+/* Une boîte vide dit où arrivent les messages, et comment afficher le
+   formulaire s'il ne l'est pas. */
+{
+  const c = neuf();
+  c.blocs["contact-1"].formulaire = true;
+  const actif = Messages.phraseSansMessage(c);
+  verifier("boîte vide, formulaire activé : on le dit, sans bouton", /arrivent ici/.test(actif.texte) && /activé/.test(actif.texte) && actif.cible === null, actif.texte);
+  c.blocs["contact-1"].formulaire = false;
+  const inactif = Messages.phraseSansMessage(c);
+  verifier("boîte vide, formulaire non coché : la case à cocher, nommée comme dans le panneau", !!inactif.cible && inactif.cible.id === "contact-1" && inactif.texte.includes("« Afficher un formulaire de contact »"), inactif.texte);
+  c.blocs["contact-1"].masque = true;
+  const masque = Messages.phraseSansMessage(c);
+  verifier("boîte vide, section Contact masquée : on le dit", /masquée/.test(masque.texte) && masque.cible && masque.cible.id === "contact-1");
+  c.pages.accueil.ordre = c.pages.accueil.ordre.filter((id) => id !== "contact-1");
+  const aucune = Messages.phraseSansMessage(c);
+  verifier("boîte vide, pas de section Contact : comment en ajouter une", /ajoutez une section « Contact »/.test(aucune.texte) && aucune.cible === null);
+  verifier("boîte vide, contenu abîmé : une phrase quand même", /^Aucun message/.test(Messages.phraseSansMessage(null).texte));
+  const masqueAvecFormulaire = neuf();
+  masqueAvecFormulaire.blocs["contact-1"].masque = true;
+  verifier("un formulaire dans une section masquée n'est pas « activé »", Messages.etatFormulaire(masqueAvecFormulaire).actifs.length === 0);
+}
+{
+  /* Relecture du 3 octobre 2026 : section masquée, case DÉJÀ cochée. « Cochez »
+     faisait cliquer sur la case, donc la décocher. */
+  const c = neuf();
+  c.blocs["contact-1"].formulaire = true;
+  c.blocs["contact-1"].masque = true;
+  const coche = Messages.phraseSansMessage(c);
+  verifier("section masquée, formulaire déjà coché : afficher, sans « cochez »", /masquée : affichez-la/.test(coche.texte) && !/cochez/i.test(coche.texte) && /déjà cochée/.test(coche.texte) && coche.cible && coche.cible.id === "contact-1", coche.texte);
+  c.blocs["contact-1"].formulaire = false;
+  const vide = Messages.phraseSansMessage(c);
+  verifier("section masquée, formulaire non coché : affichez-la ET cochez", /affichez-la, cochez « Afficher un formulaire de contact »/.test(vide.texte), vide.texte);
+}
+
+/* L'aide sous une section Contact qui affiche le formulaire. */
+{
+  const A = PanneauPage.aideFormulaire;
+  verifier("section Contact avec formulaire : « l'onglet Messages »", typeof A === "function" && /onglet « Messages »/.test(A({ type: "contact", formulaire: true }) || ""));
+  verifier("sans formulaire, ou un autre genre : rien", typeof A === "function" && A({ type: "contact", formulaire: false }) === null && A({ type: "contact", formulaire: "true" }) === null && A({ type: "faq", formulaire: true }) === null && A(null) === null);
+}
+
+/* Le journal : les nouvelles actions en clair, et un e-mail raté qui n'est
+   plus forcément le lien de connexion. */
+{
+  const ref = new Date(2026, 9, 3, 16, 0).getTime();
+  verifier("journal : message reçu", Textes.phraseJournal({ action: "message_recu", quand: ref }, ref).startsWith("Message reçu par le formulaire de contact"));
+  verifier("journal : message supprimé", Textes.phraseJournal({ action: "message_supprime", quand: ref, par: "essai@example.com" }, ref).startsWith("Message supprimé — "));
+  verifier("journal : un e-mail raté n'est plus forcément le lien de connexion", !/lien de connexion/i.test(Textes.ACTIONS_JOURNAL.envoi_echoue));
+  verifier("journal : la cause d'un e-mail raté, pour l'atelier", typeof Textes.detailJournal === "function" && Textes.detailJournal({ action: "envoi_echoue", detail: " Aucune adresse d'expédition. " }) === "Aucune adresse d'expédition." && Textes.detailJournal({ action: "publication", detail: "Version 3" }) === "" && Textes.detailJournal(null) === "");
+}
+
+/* Le cadre : aucun formulaire ne part, et l'aperçu dit pourquoi. */
+{
+  const evenement = () => { const e = { annule: 0, preventDefault() { this.annule++; } }; return e; };
+  const ea = evenement();
+  const phraseApercu = soumissionAnnulee(ea, "apercu");
+  verifier("cadre : un envoi en aperçu est annulé, et on dit pourquoi", ea.annule === 1 && /aperçu/.test(phraseApercu) && /onglet « Messages »/.test(phraseApercu));
+  const ee = evenement();
+  const phraseEdition = soumissionAnnulee(ee, "edition");
+  verifier("cadre : un envoi en édition est annulé, sans message", ee.annule === 1 && phraseEdition === "");
+  const ev = evenement();
+  verifier("cadre : une ancienne version non plus", /ancienne version/.test(soumissionAnnulee(ev, "version")) && ev.annule === 1);
+  const champ = (dansTexteEditable) => ({ closest: (s) => (s.includes("input") ? {} : dansTexteEditable ? {} : null) });
+  verifier("cadre : un champ du formulaire garde ses touches (Cmd + Z)", saisieDeFormulaire(champ(false)) === true && saisieDeFormulaire(champ(true)) === false && saisieDeFormulaire(null) === false && saisieDeFormulaire({}) === false);
+}
+
+/* La page des mentions légales : créée d'un geste, sans toucher au menu,
+   annulable d'un coup, et ses « [À compléter …] » comptés. */
+function sansMentions() {
+  const c = neuf();
+  if (c.pages[PAGE_MENTIONS]) {
+    for (const id of c.pages[PAGE_MENTIONS].ordre) delete c.blocs[id];
+    delete c.pages[PAGE_MENTIONS];
+  }
+  return c;
+}
+{
+  const c = sansMentions();
+  const menu = JSON.stringify(c.entete.liens);
+  const pied = JSON.stringify(c.pied.liens);
+  const r = Op.ajouterPageModele(c, pageMentionsLegales(c));
+  const page = c.pages[PAGE_MENTIONS];
+  verifier("mentions légales : la page et sa section sont rangées", r.pageId === PAGE_MENTIONS && !!page && page.ordre.length === 1 && c.blocs[page.ordre[0]].type === "texte" && page.titre === "Mentions légales");
+  verifier("mentions légales : rien n'est ajouté au menu ni au bas de page", JSON.stringify(c.entete.liens) === menu && JSON.stringify(c.pied.liens) === pied);
+  verifier("mentions légales : la forme canonique la garde telle quelle", JSON.stringify(normaliser(c)) === JSON.stringify(c));
+  verifier("mentions légales : une seconde fois, refusée", leve(() => Op.ajouterPageModele(c, pageMentionsLegales(c)), Op.Refus));
+  // Le nom du site est connu : il reste forme juridique, adresse, SIRET,
+  // RM / RCS, téléphone, e-mail, responsable, adresse des droits.
+  // Le nombre suit le modèle du rendu (8 au premier jet, 10 depuis
+  // qu'il demande aussi la TVA et le médiateur) : on le lit dans le modèle
+  // plutôt que de l'écrire ici.
+  const attendus = compterTrous(Object.values(pageMentionsLegales(sansMentions()).blocs));
+  verifier("mentions légales : les « [À compléter …] » comptés", attendus >= 8 && Op.trousACompleter(c, PAGE_MENTIONS) === attendus, attendus + " / " + Op.trousACompleter(c, PAGE_MENTIONS));
+  /* Masquer la section ne REMPLIT rien : sur la page des mentions légales,
+     les trous d'une section masquée comptent toujours. Avant le 3 octobre
+     2026, ils disparaissaient du compte, et l'onglet « Site » disait
+     « Relisez-la quand quelque chose change » d'une page vide. */
+  const masquer = Op.basculerMasque(c, page.ordre[0]);
+  verifier("mentions légales : une section masquée compte toujours ses trous", masquer === true && Op.trousACompleter(c, PAGE_MENTIONS) === attendus, String(Op.trousACompleter(c, PAGE_MENTIONS)));
+  verifier("ailleurs, une section masquée ne compte pas (elle n'est pas sur le site)", (() => {
+    const x = neuf();
+    const id = x.pages.accueil.ordre[0];
+    x.blocs[id].titre = "[À compléter : titre]";
+    const avant = Op.trousACompleter(x, "accueil");
+    x.blocs[id].masque = true;
+    return avant === 1 && Op.trousACompleter(x, "accueil") === 0;
+  })());
+  verifier("mentions légales : une page absente n'a pas de trous", Op.trousACompleter(c, "nulle-part") === 0 && Op.trousACompleter(null, PAGE_MENTIONS) === 0);
+}
+{
+  // Le vrai geste passe par `transformer` : un seul pas d'annulation.
+  const e = creerEtat(depart(sansMentions()));
+  const r = e.transformer((x) => Op.ajouterPageModele(x, pageMentionsLegales(x)));
+  verifier("mentions légales : créée par l'éditeur", !!r && !!e.contenu.pages[PAGE_MENTIONS]);
+  verifier("mentions légales : « Annuler » la retire d'un coup", e.annuler() && !e.contenu.pages[PAGE_MENTIONS] && !Object.values(e.contenu.blocs).some((b) => b.type === "texte"));
+}
+{
+  // Un modèle abîmé ne range rien.
+  const c = sansMentions();
+  const avant = JSON.stringify(c);
+  const bon = () => ({ pageId: "tarifs-test", page: { titre: "T", description: "", ordre: ["faq-9"] }, blocs: { "faq-9": { type: "faq", titre: "x", questions: [] } } });
+  const refus = (m) => leve(() => Op.ajouterPageModele(c, m), Op.Refus);
+  verifier("modèle de page : genre inconnu refusé", refus(Object.assign(bon(), { blocs: { "faq-9": { type: "carrousel" } } })));
+  verifier("modèle de page : section déjà prise refusée", refus(Object.assign(bon(), { page: { titre: "T", ordre: ["faq-1"] }, blocs: { "faq-1": { type: "faq" } } })));
+  verifier("modèle de page : adresse invalide refusée", refus(Object.assign(bon(), { pageId: "Avec Espaces" })) && refus(null) && refus(Object.assign(bon(), { blocs: [] })));
+  verifier("modèle de page : une page sans section refusée", refus(Object.assign(bon(), { page: { titre: "T", ordre: ["absente"] } })));
+  verifier("modèle de page : rien n'a été écrit par les refus", JSON.stringify(c) === avant);
+  const m = bon();
+  m.blocs["faq-10"] = { type: "faq", titre: "orpheline" };
+  Op.ajouterPageModele(c, m);
+  verifier("modèle de page : une section que la page ne montre pas n'entre pas", !!c.blocs["faq-9"] && !c.blocs["faq-10"]);
+  const plein = sansMentions();
+  for (let i = 0; Object.keys(plein.pages).length < Op.MAX_PAGES; i++) plein.pages["p-" + i] = { titre: "", description: "", ordre: [] };
+  verifier("modèle de page : 20 pages au plus", leve(() => Op.ajouterPageModele(plein, pageMentionsLegales(plein)), Op.Refus));
+}
+{
+  // Le compte de l'onglet « Site » voit exactement ce que voit
+  // l'avertissement de publication (`contientUnTrou`, structure.js).
+  const cas = ["[À compléter]", "[à compléter : x]", "[A completer]", "[ À  compléter", "[&agrave; compléter", "[À&nbsp;compléter", "Rien à compléter", "[Àcompléter", "[À faire]", "<em>[À</em> compléter"];
+  const ecarts = cas.filter((s) => (Op.trousDuBloc({ type: "texte", titre: s }) > 0) !== contientUnTrou({ titre: s }));
+  verifier("« [À compléter » : le compte et l'avertissement de publication voient la même chose", ecarts.length === 0, ecarts.join(" | "));
+  // Une seule écriture du motif et du parcours : celle de structure.js.
+  // L'éditeur en avait une copie qui s'arrêtait à 8 niveaux au lieu de 12 —
+  // un trou rangé profond passait sous le compte de l'onglet « Site »
+  // pendant que la publication le signalait (3 octobre 2026).
+  let profond = "[À compléter : très profond]";
+  for (let i = 0; i < 10; i++) profond = [profond];
+  verifier("« [À compléter » : un trou rangé profond est compté comme il est signalé",
+    Op.trousDuBloc({ type: "texte", titre: "", rangement: profond }) === 1 && contientUnTrou({ rangement: profond }) && compterTrous({ rangement: profond }) === 1,
+    String(Op.trousDuBloc({ type: "texte", titre: "", rangement: profond })));
+  verifier("« [À compléter » : deux trous dans un même texte font deux", compterTrous("Adresse : [À compléter] — SIRET : [à completer]") === 2 &&
+    compterTrous(["[À compléter]", { x: "[A completer]" }, "rien"]) === 2 && compterTrous(null) === 0 && compterTrous("") === 0);
+  const sourceOperations = readFileSync(racine + "socle/public/editeur/operations.js", "utf8");
+  verifier("« [À compléter » : l'éditeur compte avec structure.js, sans motif à lui",
+    /import\s*\{[^}]*\bcompterTrous\b[^}]*\}\s*from\s*"\/rendu\/structure\.js"/.test(sourceOperations) && !/compl\[|compl\(\?:/.test(sourceOperations));
+}
+{
+  // L'onglet « Site » : le bouton et sa phrase.
+  const sans = sansMentions();
+  const e0 = PanneauSite.etatMentions(sans);
+  const p0 = PanneauSite.phraseMentions(e0);
+  verifier("onglet Site : sans la page, on propose de l'ajouter et on dit qu'elle est obligatoire", !e0.existe && /obligatoires/.test(p0) && /« \[À compléter …\] »/.test(p0));
+  Op.ajouterPageModele(sans, pageMentionsLegales(sans));
+  const e1 = PanneauSite.etatMentions(sans);
+  const n1 = compterTrous(Object.values(pageMentionsLegales(sansMentions()).blocs));
+  verifier("onglet Site : la page existe, le compte des trous est dit", e1.existe && !e1.vide && e1.trous === n1 && new RegExp(n1 + " « \\[À compléter …\\] » restent à remplir : remplacez-les").test(PanneauSite.phraseMentions(e1)), PanneauSite.phraseMentions(e1));
+  verifier("onglet Site : un seul trou, au singulier", /un « \[À compléter …\] » reste à remplir : remplacez-le /.test(PanneauSite.phraseMentions({ existe: true, trous: 1 })));
+  verifier("onglet Site : plus de trou, plus de consigne de trou", !/À compléter/.test(PanneauSite.phraseMentions({ existe: true, trous: 0 })) && /obligatoires/.test(PanneauSite.phraseMentions({ existe: true, trous: 0 })));
+  verifier("onglet Site : la démo a sa page, remplie", PanneauSite.etatMentions(neuf()).existe && PanneauSite.etatMentions(neuf()).trous === 0);
+}
+{
+  /* Relecture du 3 octobre 2026 : masquer la section des mentions légales
+     faisait taire l'onglet « Site » (« Relisez-la… ») et l'avertissement de
+     publication, sur une page qui n'affichait plus rien. */
+  const demo = neuf();
+  const idDemo = demo.pages[PAGE_MENTIONS].ordre[0];
+  verifier("mentions : la démo affiche sa page, la publication n'a rien à dire", !Op.etatPageMentions(demo).vide && Op.avertissementPublication(demo) === null);
+  Op.basculerMasque(demo, idDemo);
+  const e = PanneauSite.etatMentions(demo);
+  const phrase = PanneauSite.phraseMentions(e);
+  verifier("mentions masquées : l'onglet Site le dit, et ne rassure plus", e.existe && e.vide && e.masquees === 1 && /n'affiche rien/.test(phrase) && /sa section est masquée/.test(phrase) &&
+    /Affichez-la/.test(phrase) && !/Relisez-la/.test(phrase), phrase);
+  const avis = Op.avertissementPublication(demo);
+  verifier("mentions masquées : la publication prévient", !!avis && avis.lignes.length === 0 && /mentions légales n'affiche rien : sa section est masquée/.test(avis.mentions || "") && /obligatoires/.test(avis.mentions || ""), JSON.stringify(avis));
+
+  const modele = sansMentions();
+  Op.ajouterPageModele(modele, pageMentionsLegales(modele));
+  const n = compterTrous(Object.values(pageMentionsLegales(sansMentions()).blocs));
+  const visible = Op.avertissementPublication(modele);
+  verifier("mentions à compléter : la publication les nomme, sans parler de page vide", !!visible && visible.lignes.length === 1 && /« \[À compléter …\] » à remplir$/.test(visible.lignes[0]) &&
+    /contient encore des « \[À compléter …\] »/.test(visible.intro) && visible.mentions === null, JSON.stringify(visible));
+  Op.basculerMasque(modele, modele.pages[PAGE_MENTIONS].ordre[0]);
+  const em = PanneauSite.etatMentions(modele);
+  verifier("modèle masqué : vide, et ses trous toujours comptés", em.vide && em.trous === n && new RegExp("remplacez les " + n + " « \\[À compléter …\\] » qui restent").test(PanneauSite.phraseMentions(em)), PanneauSite.phraseMentions(em));
+
+  const sansSection = neuf();
+  sansSection.pages[PAGE_MENTIONS].ordre = [];
+  const es = PanneauSite.etatMentions(sansSection);
+  verifier("mentions sans section : « elle n'a aucune section », et comment la remplir", es.vide && es.sections === 0 && /aucune section/.test(PanneauSite.phraseMentions(es)) && /section « Texte »/.test(PanneauSite.phraseMentions(es)));
+  const videe = neuf();
+  const b = videe.blocs[videe.pages[PAGE_MENTIONS].ordre[0]];
+  for (const k of ["surtitre", "titre", "intro"]) b[k] = "";
+  b.paragraphes = [];
+  const ev = PanneauSite.etatMentions(videe);
+  verifier("mentions aux textes vidés : vide aussi", ev.vide && ev.masquees === 0 && /ses textes sont vides/.test(PanneauSite.phraseMentions(ev)), PanneauSite.phraseMentions(ev));
+
+  // Une page qui garde une section visible, plus une section masquée à trous.
+  const deux = neuf();
+  const idTrous = "texte-99";
+  deux.blocs[idTrous] = { type: "texte", surtitre: "", titre: "Médiation", intro: "", paragraphes: [{ titre: "Médiateur", texte: "[À compléter : nom du médiateur]" }], masque: true };
+  deux.pages[PAGE_MENTIONS].ordre.push(idTrous);
+  const ad = Op.avertissementPublication(deux);
+  verifier("une section masquée des mentions avec des trous : signalée à part", !Op.etatPageMentions(deux).vide && !!ad && /section masquée de la page des mentions légales/.test(ad.mentions || ""), JSON.stringify(ad));
+  verifier("mentions : contenu abîmé, aucune exception", [null, {}, { pages: { "mentions-legales": null } }, { pages: { "mentions-legales": { ordre: "x" } }, blocs: {} }].every((x) => {
+    try { Op.etatPageMentions(x); Op.avertissementPublication(x); PanneauSite.phraseMentions(Op.etatPageMentions(x)); return true; } catch { return false; }
+  }));
+}
+
+/* Le défilement du panneau d'un onglet à l'autre (relecture du 3 octobre
+   2026) : « Voir les messages », cliqué en bas de l'onglet « Page »,
+   ouvrait la liste défilée de 1 124 px, les plus récents cachés au-dessus. */
+{
+  verifier("panneau : un autre onglet s'ouvre en haut", defilementApres("page", "messages", 1124) === 0 && defilementApres("site", "page", 86.5) === 0);
+  verifier("panneau : le même onglet reconstruit garde sa place", defilementApres("messages", "messages", 1487) === 1487);
+  verifier("panneau : le premier dessin part du haut", defilementApres(null, "page", 50) === 0 && defilementApres("page", "page", NaN) === 0);
+}
+
+/* À 320 px (un vieux téléphone, ou un ordinateur zoomé à 400 %), la
+   pastille faisait déborder l'éditeur et l'onglet « Messages » chevauchait
+   « Versions » (relecture du 3 octobre 2026). */
+{
+  const css = readFileSync(racine + "socle/public/editeur/editeur.css", "utf8");
+  const regle = (selecteur, dans = css) => {
+    const m = new RegExp("(^|[}\\s])" + selecteur.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\s*\\{([^}]*)\\}").exec(dans);
+    return m ? m[2] : "";
+  };
+  verifier("feuille : l'onglet passe à la ligne au lieu de déborder", /flex-wrap:\s*wrap/.test(regle(".ed-onglet")));
+  const etroit = /@media\s*\(max-width:\s*399px\)\s*\{([\s\S]*?\})\s*\}/.exec(css);
+  verifier("feuille : sous 400 px, la barre du haut passe à la ligne", !!etroit && /flex-wrap:\s*wrap/.test(regle(".ed-haut__fin", etroit[1])));
+}
+
+/* Le contrat d'editeur.js : chaque nom qu'il annonce existe, et chaque nom
+   que l'éditeur importe du rendu y figure. Un nom oublié, c'est l'éditeur
+   à moitié construit de Graine de Pensée, le 21 septembre 2026. */
+{
+  const source = readFileSync(racine + "socle/public/editeur/editeur.js", "utf8");
+  const m = /const CONTRAT = (\{[\s\S]*?\n\});/.exec(source);
+  let contrat = null;
+  try { contrat = m ? new Function("return " + m[1])() : null; } catch { contrat = null; }
+  verifier("contrat : le modèle des mentions légales y figure", !!contrat && Array.isArray(contrat["/rendu/modeles-pages.js"]) && contrat["/rendu/modeles-pages.js"].includes("PAGE_MENTIONS") && contrat["/rendu/modeles-pages.js"].includes("pageMentionsLegales"));
+  const absents = [];
+  for (const [chemin, noms] of Object.entries(contrat || {})) {
+    let mod = null;
+    try { mod = await import(new URL(chemin.slice(1), PUBLIC).href); } catch { absents.push(chemin + " (module)"); continue; }
+    for (const nom of noms) if (!(nom in mod)) absents.push(chemin + " : " + nom);
+  }
+  verifier("contrat : chaque nom annoncé existe dans son module", absents.length === 0, absents.join(", "));
+  const oublies = [];
+  const dossier = racine + "socle/public/editeur/";
+  for (const f of readdirSync(dossier).filter((x) => x.endsWith(".js"))) {
+    const texte = readFileSync(dossier + f, "utf8");
+    for (const imp of texte.matchAll(/import\s*\{([^}]*)\}\s*from\s*"(\/rendu\/[^"]+)"/g)) {
+      for (const brut of imp[1].split(",")) {
+        const nom = brut.trim().split(/\s+as\s+/)[0];
+        if (nom && !(contrat && Array.isArray(contrat[imp[2]]) && contrat[imp[2]].includes(nom))) oublies.push(f + " → " + imp[2] + " : " + nom);
+      }
+    }
+  }
+  verifier("contrat : chaque nom importé du rendu par l'éditeur y figure", oublies.length === 0, oublies.join(", "));
+}
+
+/* Le journal : chaque action que le serveur écrit a son libellé dans
+   l'onglet Compte. Sans lui, la ligne s'afficherait « Autre opération » —
+   lisible, mais muette sur ce qui s'est passé. Le socle 0.3.0 en a ajouté
+   deux (message_recu, message_supprime), écrites par un chantier et
+   nommées par un autre (3 octobre 2026). */
+{
+  const coeur = readFileSync(racine + "socle/serveur/atelier-coeur.js", "utf8");
+  const ecrites = new Set([
+    ...[...coeur.matchAll(/journaliser\(\s*"([a-z_]+)"/g)].map((m) => m[1]),
+    // Les gestes qui passent par `remplacerBrouillon` nomment leur action en argument.
+    ...[...coeur.matchAll(/remplacerBrouillon\([^;]*?"([a-z_]+)"/g)].map((m) => m[1])
+  ]);
+  const sansLibelle = [...ecrites].filter((a) => !Object.prototype.hasOwnProperty.call(Textes.ACTIONS_JOURNAL, a));
+  // `message_recu` n'est plus écrit par le serveur (une ligne par message
+  // laissait des robots chasser les connexions du journal) ; il garde son
+  // libellé pour les lignes anciennes, mais n'est plus exigé ici.
+  verifier("journal : chaque action écrite par le serveur a son libellé", ecrites.size >= 12 && ecrites.has("message_supprime") && ecrites.has("message_plafond") &&
+    ecrites.has("reprise") && sansLibelle.length === 0, [...ecrites].join(", ") + " — sans libellé : " + sansLibelle.join(", "));
 }
 
 /* ----- Bilan ----- */

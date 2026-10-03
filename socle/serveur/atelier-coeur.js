@@ -5,7 +5,8 @@
    Un Durable Object par client (nom fixe « site ») garde tout ce qui doit
    être COHÉRENT : le brouillon et sa révision, les versions, les jetons de
    connexion à usage unique, les sessions, les compteurs de limites, le
-   journal et l'index des photos. KV, répliqué au bord et cohérent « à
+   journal, l'index des photos et, depuis le socle 0.3.0, les messages du
+   formulaire de contact. KV, répliqué au bord et cohérent « à
    terme », ne sait rien garantir de tout ça — un jeton « à usage unique »
    lu dans KV peut servir deux fois.
 
@@ -41,6 +42,8 @@ import {
 } from "./validation.js";
 import { CLE_PUBLIE } from "./contenu.js";
 import { urlMedia, photosCitees, TYPES_IMAGES, LIMITES_PHOTOS } from "./medias.js";
+import { validerMessage } from "../public/rendu/formulaire.js";
+import { identifiantValide } from "../public/rendu/outils.js";
 
 const MINUTE = 60_000;
 const HEURE = 60 * MINUTE;
@@ -92,9 +95,84 @@ const LIMITES_LIENS = [
   { seau: "adresse", fenetre: JOUR, max: 30, ipConnueFranchit: true, motif: "Limite atteinte : 30 liens en 24 heures pour cette adresse, toutes connexions confondues." },
   { seau: "site", fenetre: JOUR, max: 50, ipConnueFranchit: true, motif: "Limite atteinte : 50 e-mails de connexion en 24 heures pour le site." }
 ];
+/* Le formulaire de contact (socle 0.3.0) : la seule écriture qu'une
+   INCONNUE puisse faire sur le site. Cinq messages par heure depuis une
+   même connexion (une personne qui insiste, ou un robot), cent par
+   24 heures pour tout le site (un robot qui change d'adresse) : au-delà,
+   c'est du remplissage, et la base d'un client n'est pas une décharge.
+
+   Comme pour les liens, seul un message ENREGISTRÉ compte : une connexion
+   au plafond n'écrit plus rien, et un refus ne coûte que deux lectures
+   d'index (leçon du 3 octobre 2026, plus haut).
+
+   Le plafond du SITE, lui, se dit au journal (`auJournal`) — une ligne par
+   24 heures au plus : de vraies visiteuses sont alors refusées, l'artisan
+   doit pouvoir le lire. Celui d'une connexion ne touche qu'elle (une
+   personne qui insiste, ou un robot) et ne s'écrit nulle part. */
+const LIMITES_MESSAGES = [
+  { seau: "message_ip", fenetre: HEURE, max: 5 },
+  { seau: "message_site", fenetre: JOUR, max: 100, auJournal: true,
+    motif: "Plafond atteint : 100 messages en 24 heures pour le site. Les suivants sont refusés, 24 heures au plus." }
+];
+
+/* Les alertes « nouveau message » partent sur le quota d'e-mails de
+   l'ATELIER (3 000 par mois pour tous les clients), le même que les liens
+   de connexion. Cent messages de robot par jour sur un seul site, à deux
+   adresses chacun, épuiseraient ce quota en quinze jours — et plus aucun
+   client ne recevrait son lien de connexion. Vingt E-MAILS d'alerte par
+   24 heures et par site, donc, quoi qu'il arrive (Graine de Pensée : « le
+   plafond d'alertes est le seul chiffre qui borne la facture »). Les
+   messages au-delà sont enregistrés comme les autres : seul l'e-mail
+   manque.
+
+   ⚠️ Le plafond compte des e-mails, pas des messages : une alerte part
+   vers CHAQUE adresse du client, et le service facture chaque
+   destinataire. Compté par message, il laissait partir 60 e-mails par
+   jour pour un client à trois adresses, 100 pour cinq — tout le quota
+   mensuel de l'atelier sur un seul site, en un mois de robots (relecture
+   du 3 octobre 2026). Une alerte à n adresses prend n places, et n'est
+   accordée que si les n tiennent sous le plafond. Le total de l'atelier
+   reste borné site par site seulement (20 alertes et 50 liens de
+   connexion par jour, fois le nombre de sites) : il se surveille. */
+const LIMITE_ALERTES = { seau: "alerte_site", fenetre: JOUR, max: 20 };
+
+/* Un envoi d'alerte qui échoue va au journal (`envoi_echoue`), mais UNE
+   fois par 24 heures et par adresse : ces échecs, une inconnue les
+   déclenche en écrivant, et sans ce frein ils chassaient du journal les
+   connexions qu'il sert à voir (relecture du 3 octobre 2026). */
+const JOURNAL_ECHEC_ALERTE = { seau: "echec_alerte", fenetre: JOUR, max: 1 };
+
 // La plus longue fenêtre de chaque seau : au-delà, une ligne ne compte plus.
 const FENETRES = new Map();
-for (const l of [LIMITE_IP, ...LIMITES_LIENS]) FENETRES.set(l.seau, Math.max(FENETRES.get(l.seau) || 0, l.fenetre));
+for (const l of [LIMITE_IP, ...LIMITES_LIENS, ...LIMITES_MESSAGES, LIMITE_ALERTES, JOURNAL_ECHEC_ALERTE]) FENETRES.set(l.seau, Math.max(FENETRES.get(l.seau) || 0, l.fenetre));
+
+/* Un message reçu est gardé un an au plus : c'est ce qu'annonce la page
+   des mentions légales (« gardées un an au plus sur le site » ; la notice
+   sous le formulaire n'annonce plus de durée et y mène). La purge passe
+   avec les autres (`purger`), AUSSI avant toute
+   lecture de l'administration (`api`) — un site dont personne n'écrit plus
+   ne doit pas montrer, ni exporter, un message de l'an passé —, et par
+   l'ALARME du Durable Object (`alarme`).
+
+   ⚠️ Sans l'alarme, la promesse ne valait que pour l'affichage. La purge
+   ne passait qu'au réveil du Durable Object (un message, une demande de
+   lien, l'administration), et une visite publique ne le réveille jamais :
+   un site calme, dont le client n'ouvre plus l'administration, gardait son
+   dernier message pour toujours (relecture du 3 octobre 2026). L'alarme est
+   posée à chaque dépôt pour le jour où le plus ancien message aura un an,
+   et reposée après chaque purge sur le suivant. */
+export const GARDE_MESSAGES = 365 * JOUR;
+/* L'onglet Messages les lit par pages de 200, des plus récents aux plus
+   anciens (`?avant=<id>`) : au-delà des 200 premiers, un message restait
+   gardé, compté et exporté, mais on ne pouvait plus l'ouvrir ni le
+   supprimer (relecture du 3 octobre 2026).
+   L'export en donne les 2 000 plus récents — vingt jours au plafond du
+   site, des années d'un vrai formulaire — et dit combien il en laisse
+   (`messages_tronques`) : sans borne, un an de robots au plafond
+   l'aurait fait grossir au-delà de la mémoire d'un Worker. Les plus anciens
+   restent lisibles, page par page, dans l'onglet. */
+const MESSAGES_LUS = 200;
+const MESSAGES_EXPORTES = 2000;
 
 /* La purge des compteurs ne passe qu'une fois par minute, et non à chaque
    demande : une demande anonyme ne doit jamais coûter plus que quelques
@@ -119,8 +197,10 @@ export const QUOTA_MEDIAS = Object.freeze({ nombre: 1000, octets: 1024 * 1024 * 
 /* Les méthodes que le Worker peut appeler sur le Durable Object — la liste
    blanche. `atelier.js` déclare exactement celles-là, et les tests le
    vérifient : une méthode ajoutée ici sans l'être là-bas serait
-   injoignable, et l'inverse exposerait une méthode interne. */
-export const METHODES_RPC = Object.freeze(["api", "session", "demanderLien", "verifierLien", "entrer", "entrerParLienDemo", "deconnecter", "signalerEchecEnvoi"]);
+   injoignable, et l'inverse exposerait une méthode interne. L'alarme
+   (`alarm` → `alarme`) n'en fait pas partie : c'est la plateforme qui
+   l'appelle, jamais le Worker. */
+export const METHODES_RPC = Object.freeze(["api", "session", "demanderLien", "verifierLien", "entrer", "entrerParLienDemo", "deconnecter", "signalerEchecEnvoi", "deposerMessage"]);
 
 const SCHEMA = [
   /* Une seule ligne : le brouillon ET ce qui est en ligne, lus ensemble à
@@ -214,7 +294,37 @@ const SCHEMA = [
     quand INTEGER NOT NULL,
     par TEXT,
     retire_le INTEGER
-  )`
+  )`,
+  /* Les messages du formulaire de contact (socle 0.3.0) — une table neuve,
+     donc un simple `CREATE TABLE IF NOT EXISTS` : un Durable Object déjà
+     en service la reçoit à son prochain réveil, sans rien à lancer.
+     AUTOINCREMENT : un numéro n'est jamais réattribué. « Message n° 12 »
+     au journal, ou le message ouvert dans un onglet resté là, ne doivent
+     jamais désigner demain le message de quelqu'un d'autre.
+     `connexion` reste VIDE. Elle recevait l'empreinte salée de l'adresse
+     IP, que rien ne relisait : la limite des envois se compte dans
+     `demandes`, pas ici. Et les mentions légales comme la notice du
+     formulaire disent que les coordonnées servent « uniquement à
+     répondre » : garder avec chaque message, un an, une trace de la
+     connexion d'où il est parti, c'était un traitement qu'elles taisaient
+     (contrôle du 3 octobre 2026). La colonne reste, NOT NULL : un Durable
+     Object déjà en service a pu créer la table avec elle, et un INSERT qui
+     l'omettrait y échouerait — le message serait perdu. */
+  `CREATE TABLE IF NOT EXISTS messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    quand INTEGER NOT NULL,
+    page TEXT NOT NULL,
+    bloc TEXT NOT NULL,
+    nom TEXT NOT NULL,
+    email TEXT NOT NULL,
+    telephone TEXT NOT NULL DEFAULT '',
+    message TEXT NOT NULL,
+    lu_le INTEGER,
+    connexion TEXT NOT NULL
+  )`,
+  // La purge à un an et le compte des non-lus suivent chacun un index.
+  "CREATE INDEX IF NOT EXISTS messages_par_quand ON messages (quand)",
+  "CREATE INDEX IF NOT EXISTS messages_par_lecture ON messages (lu_le)"
 ];
 
 /* ----- Réponses de l'API -----
@@ -230,6 +340,7 @@ const MESSAGES = {
   quota_atteint: "La médiathèque est pleine (1 000 photos ou 1 Go). Retirez des photos pour en ajouter d'autres.",
   version_introuvable: "Cette version n'existe plus.",
   photo_introuvable: "Cette photo n'existe pas.",
+  message_introuvable: "Ce message n'existe plus.",
   action_introuvable: "Cette action n'existe pas."
 };
 
@@ -300,6 +411,30 @@ function vueMedia(m) {
   };
 }
 
+/* Un message tel que le voit l'administration. `bloc` reste en base : il
+   ne dit rien d'utile à l'artisan (`connexion`, elle, est vide). */
+function vueMessage(m) {
+  return { id: m.id, quand: m.quand, page: m.page, nom: m.nom, email: m.email, telephone: m.telephone, message: m.message, lu: m.lu_le !== null };
+}
+const COLONNES_MESSAGE = "id, quand, page, nom, email, telephone, message, lu_le";
+const messageIntrouvable = () => erreur(404, "introuvable", MESSAGES.message_introuvable);
+
+/* La règle d'un message est UNE, celle du formulaire (formulaire.js), que
+   le Worker a déjà appliquée. Le Durable Object la rejoue sur ce qu'il
+   va écrire : il ne croit pas son appelant sur parole, quel qu'il soit.
+   Sans erreur → les valeurs nettoyées ; sinon `null`. */
+function messageValide(brut) {
+  let v;
+  try {
+    v = validerMessage({ nom: brut.nom, email: brut.email, telephone: brut.telephone, message: brut.message });
+  } catch {
+    return null;
+  }
+  if (!objetSimple(v) || !objetSimple(v.valeurs) || (objetSimple(v.erreurs) && Object.keys(v.erreurs).length)) return null;
+  const champ = (k) => (typeof v.valeurs[k] === "string" ? v.valeurs[k] : "");
+  return { nom: champ("nom"), email: champ("email"), telephone: champ("telephone"), message: champ("message") };
+}
+
 const conflit = (b) => erreur(409, "conflit", MESSAGES.conflit, { brouillon: vueBrouillon(b) });
 
 /* Une photo décrite par le Worker après lecture de ses octets. */
@@ -326,7 +461,10 @@ const OPERATIONS = {
   "medias.retirer": "opMediasRetirer",
   "journal": "opJournal",
   "export": "opExport",
-  "deconnecter-partout": "opDeconnecterPartout"
+  "deconnecter-partout": "opDeconnecterPartout",
+  "messages": "opMessages",
+  "messages.lu": "opMessagesLu",
+  "messages.supprimer": "opMessagesSupprimer"
 };
 
 export class CoeurAtelier {
@@ -392,6 +530,7 @@ export class CoeurAtelier {
     this.ecrire("DELETE FROM jetons WHERE expire_le <= ?", maintenant);
     this.ecrire("DELETE FROM sessions WHERE expire_le <= ?", maintenant);
     this.ecrire("DELETE FROM ip_connues WHERE quand <= ?", maintenant - GARDE_IP_CONNUE);
+    this.ecrire("DELETE FROM messages WHERE quand <= ?", maintenant - GARDE_MESSAGES);
   }
 
   purgerSiBesoin(maintenant) {
@@ -549,11 +688,135 @@ export class CoeurAtelier {
     });
   }
 
-  signalerEchecEnvoi({ email, cause } = {}) {
+  /* `alerte: true` : l'échec d'une alerte de message, noté une fois par
+     24 heures et par adresse (voir JOURNAL_ECHEC_ALERTE). Celui d'un lien
+     de connexion est toujours noté : seule une adresse autorisée le
+     déclenche, et ses demandes ont leurs propres plafonds.
+     → `{ ok: true, note: true | false }` */
+  signalerEchecEnvoi({ email, cause, alerte } = {}) {
     return this.stockage.transactionSync(() => {
-      this.journaliser("envoi_echoue", adresseEmail(email) || null, typeof cause === "string" ? cause : "Cause inconnue.");
-      return { ok: true };
+      const adresse = adresseEmail(email) || null;
+      if (alerte === true) {
+        const maintenant = this.maintenant();
+        const l = JOURNAL_ECHEC_ALERTE;
+        if (this.compter(l.seau, adresse || "inconnue", maintenant - l.fenetre, l.max) >= l.max) return { ok: true, note: false };
+        this.noter(l.seau, adresse || "inconnue", maintenant);
+      }
+      this.journaliser("envoi_echoue", adresse, typeof cause === "string" ? cause : "Cause inconnue.");
+      return { ok: true, note: true };
     });
+  }
+
+  /* ----- Le formulaire de contact -----
+
+     Un message déposé par une visiteuse, d'un seul tenant : les limites,
+     l'écriture, les compteurs et le journal. Le Worker l'appelle APRÈS
+     avoir vérifié l'origine, la section et le message ; le refus d'un
+     message malformé ici n'arrive donc qu'à un appelant fautif.
+
+     `alerter: true` : le Worker sait envoyer une alerte (adresses du
+     client, service d'envoi réglé), vers `destinataires` adresses. Le
+     Durable Object prend alors une place PAR ADRESSE dans le plafond des
+     alertes (il compte des e-mails, voir LIMITE_ALERTES), dans la MÊME
+     transaction : deux messages simultanés ne passent pas tous deux la
+     vingtième place. `alertesRestantes` compte des ALERTES entières : à 0,
+     celle-ci est la dernière du jour, et le dit.
+
+     ⚠️ Un message reçu n'écrit PAS de ligne au journal : la table
+     `messages` est sa trace. Une ligne « message_recu » par message, dans
+     un journal qui garde 500 lignes et en montre 20, laissait n'importe
+     quelle inconnue en chasser les connexions — celle d'un intrus
+     comprise — en vingt messages et quatre adresses (relecture du
+     3 octobre 2026). Seul le plafond du site s'y écrit, une fois par jour
+     au plus (`journaliserPlafond`).
+
+     Après l'écriture, l'alarme de la garde d'un an (`armerAlarme`). Elle
+     attend la plateforme, hors de la transaction ; si elle échoue, le
+     message reste enregistré — une visiteuse ne doit jamais renvoyer un
+     message déjà gardé — et la suivante la reposera.
+     → `{ ok: true, id, alerte, alertesRestantes }`
+     → `{ ok: false, motif: "limite" | "invalide" }` */
+  async deposerMessage(demande = {}) {
+    const d = objetSimple(demande) ? demande : {};
+    const m = messageValide(d);
+    if (!m || !identifiantValide(d.page) || !identifiantValide(d.bloc)) return { ok: false, motif: "invalide" };
+    const cleIp = await this.empreinteConnexion(d.ip);
+    const resultat = this.stockage.transactionSync(() => {
+      const maintenant = this.maintenant();
+      this.purgerSiBesoin(maintenant);
+      const cles = { message_ip: cleIp, message_site: "site" };
+      // Toutes les limites sont lues, pas seulement la première atteinte :
+      // une connexion au plafond ne doit pas taire celui du site.
+      const atteintes = LIMITES_MESSAGES.filter((l) => this.compter(l.seau, cles[l.seau], maintenant - l.fenetre, l.max) >= l.max);
+      if (atteintes.length) {
+        for (const l of atteintes) if (l.auJournal) this.journaliserPlafond(l.motif, maintenant);
+        return { ok: false, motif: "limite" };
+      }
+      const id = this.lignes("INSERT INTO messages (quand, page, bloc, nom, email, telephone, message, connexion) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+        maintenant, d.page, d.bloc, m.nom, m.email, m.telephone, m.message, "")[0].id;   // `connexion` vide : voir la table
+      for (const l of LIMITES_MESSAGES) this.noter(l.seau, cles[l.seau], maintenant);
+      let alerte = false;
+      let alertesRestantes = 0;
+      if (d.alerter === true) {
+        const L = LIMITE_ALERTES;
+        const n = Number.isSafeInteger(d.destinataires) && d.destinataires > 0 ? Math.min(d.destinataires, L.max) : 1;
+        const deja = this.compter(L.seau, "site", maintenant - L.fenetre, L.max);
+        if (deja + n <= L.max) {
+          for (let i = 0; i < n; i++) this.noter(L.seau, "site", maintenant);
+          alerte = true;
+          alertesRestantes = Math.floor((L.max - deja - n) / n);
+        }
+      }
+      return { ok: true, id, alerte, alertesRestantes };
+    });
+    if (resultat.ok) {
+      try {
+        await this.armerAlarme();
+      } catch (e) {
+        console.error("Alarme de la garde des messages non posée :", e);
+      }
+    }
+    return resultat;
+  }
+
+  /* Le plafond du site au journal : une ligne par 24 heures au plus, sans
+     nom ni adresse. Lue par l'index du journal (action, par, quand). */
+  journaliserPlafond(motif, maintenant) {
+    const recent = this.ligne("SELECT 1 AS x FROM journal WHERE action = 'message_plafond' AND par IS NULL AND quand > ? LIMIT 1", maintenant - JOUR);
+    if (!recent) this.journaliser("message_plafond", null, motif);
+  }
+
+  /* ----- La garde d'un an, sans visite -----
+
+     Le jour où le plus ancien message aura un an ; `null` sans message. */
+  prochaineEcheanceMessages() {
+    const r = this.ligne("SELECT MIN(quand) AS q FROM messages");
+    return r && Number.isFinite(r.q) ? r.q + GARDE_MESSAGES : null;
+  }
+
+  /* L'alarme est posée pour cette échéance, sauf s'il y en a déjà une plus
+     tôt (elle passera, purgera, et reposera la suivante). Un Durable Object
+     n'a qu'UNE alarme : celle-ci est la seule du socle.
+     `apresSonnerie` : appelée PENDANT la sonnerie, l'alarme en cours est
+     consommée ; la suivante se pose sans rien demander — on ne se fie pas à
+     ce que `getAlarm()` rendrait de celle qui est en train de sonner. */
+  async armerAlarme(apresSonnerie = false) {
+    const echeance = this.prochaineEcheanceMessages();
+    if (echeance === null) return;
+    if (!apresSonnerie) {
+      const prevue = await this.stockage.getAlarm();
+      if (typeof prevue === "number" && prevue <= echeance) return;
+    }
+    await this.stockage.setAlarm(echeance);
+  }
+
+  /* L'alarme sonne (atelier.js, `alarm`) : la purge complète, puis
+     l'échéance suivante. Une erreur remonte : la plateforme réessaie. */
+  async alarme() {
+    const maintenant = this.maintenant();
+    this.stockage.transactionSync(() => this.purger(maintenant));
+    this.prochainePurge = maintenant + PURGE_ESPACEE;
+    await this.armerAlarme(true);
   }
 
   /* ----- L'API de l'éditeur -----
@@ -569,6 +832,9 @@ export class CoeurAtelier {
     if (!methode) return erreur(404, "introuvable", MESSAGES.action_introuvable);
     const qui = await this.qui(d.session, d.autorisees);
     if (!qui) return Object.assign(erreur(401, "non_connecte", MESSAGES.non_connecte), { effacerCookie: true });
+    // Avant toute lecture : un message de plus d'un an ne se montre pas,
+    // ne se compte pas et ne s'exporte pas (voir GARDE_MESSAGES).
+    this.purgerSiBesoin(this.maintenant());
     return this[methode](qui, d, objetSimple(d.params) ? d.params : {});
   }
 
@@ -738,7 +1004,10 @@ export class CoeurAtelier {
     return this.enFile(async () => {
       const { b } = await this.brouillonAJour(d.livre);
       if (!b) return indisponible();
-      return ok({ site: objetSimple(d.site) ? d.site : null, utilisateur: { email: qui.email }, brouillon: vueBrouillon(b), publie: vuePublie(b) });
+      return ok({
+        site: objetSimple(d.site) ? d.site : null, utilisateur: { email: qui.email }, brouillon: vueBrouillon(b), publie: vuePublie(b),
+        messages: { nonLus: this.ligne("SELECT COUNT(*) AS n FROM messages WHERE lu_le IS NULL").n }
+      });
     });
   }
 
@@ -934,7 +1203,57 @@ export class CoeurAtelier {
     const mediatheque = this.lignes("SELECT id, ext FROM medias WHERE retire_le IS NULL ORDER BY quand, rowid").map((m) => urlMedia(m.id, m.ext));
     const medias = [...new Set(mediatheque.concat(photosCitees(enLigne.json)))];
     const site = objetSimple(d.site) && typeof d.site.id === "string" ? d.site.id : "";
-    return ok({ site, exporte_le: this.maintenant(), contenu: JSON.parse(enLigne.json), medias });
+    // Les messages reçus sont les données du client autant que son contenu :
+    // un client qui part les emporte — les 2 000 plus récents, et le compte
+    // de ceux qui manquent s'il y en a (voir MESSAGES_EXPORTES).
+    const lignes = this.lignes("SELECT " + COLONNES_MESSAGE + " FROM messages ORDER BY id DESC LIMIT ?", MESSAGES_EXPORTES + 1);
+    const corps = { site, exporte_le: this.maintenant(), contenu: JSON.parse(enLigne.json), medias, messages: lignes.slice(0, MESSAGES_EXPORTES).map(vueMessage) };
+    if (lignes.length > MESSAGES_EXPORTES) corps.messages_tronques = this.ligne("SELECT COUNT(*) AS n FROM messages").n - MESSAGES_EXPORTES;
+    return ok(corps);
+  }
+
+  /* ----- Les messages reçus -----
+
+     Une page de 200, du plus récent au plus ancien ; `avant` (un numéro)
+     donne la page suivante, celle des messages plus anciens que lui.
+     `suite` dit s'il en reste après celle-ci ; `total` et `nonLus` comptent
+     TOUTE la base, pour que l'onglet ne déduise pas un compte d'une page. */
+  opMessages(qui, d, p) {
+    if (p.avant !== undefined && !idVersion(p.avant)) return requeteInvalide();
+    const lignes = p.avant === undefined
+      ? this.lignes("SELECT " + COLONNES_MESSAGE + " FROM messages ORDER BY id DESC LIMIT ?", MESSAGES_LUS + 1)
+      : this.lignes("SELECT " + COLONNES_MESSAGE + " FROM messages WHERE id < ? ORDER BY id DESC LIMIT ?", p.avant, MESSAGES_LUS + 1);
+    return ok({
+      messages: lignes.slice(0, MESSAGES_LUS).map(vueMessage),
+      suite: lignes.length > MESSAGES_LUS,
+      total: this.ligne("SELECT COUNT(*) AS n FROM messages").n,
+      nonLus: this.ligne("SELECT COUNT(*) AS n FROM messages WHERE lu_le IS NULL").n
+    });
+  }
+
+  /* « Lu » garde la date de la PREMIÈRE lecture : rouvrir un message ne la
+     déplace pas. « Non lu » l'efface. Seul le vrai booléen compte : un
+     « false » écrit en texte vaudrait `true` partout ailleurs. */
+  opMessagesLu(qui, d, p) {
+    if (!idVersion(p.id)) return messageIntrouvable();
+    if (typeof p.lu !== "boolean") return requeteInvalide();
+    const r = p.lu
+      ? this.lignes("UPDATE messages SET lu_le = COALESCE(lu_le, ?) WHERE id = ? RETURNING id", this.maintenant(), p.id)
+      : this.lignes("UPDATE messages SET lu_le = NULL WHERE id = ? RETURNING id", p.id);
+    return r.length ? ok({ ok: true }) : messageIntrouvable();
+  }
+
+  /* Supprimer est DÉFINITIF : aucune corbeille, aucune version. C'est ce
+     que demande la personne qui exerce son droit à l'effacement, et
+     l'éditeur le dit avant de le faire. */
+  opMessagesSupprimer(qui, d, p) {
+    if (!idVersion(p.id)) return messageIntrouvable();
+    return this.stockage.transactionSync(() => {
+      const r = this.lignes("DELETE FROM messages WHERE id = ? RETURNING id", p.id)[0];
+      if (!r) return messageIntrouvable();
+      this.journaliser("message_supprime", qui.email, "Message n° " + r.id);
+      return ok({ ok: true });
+    });
   }
 
   opDeconnecterPartout(qui) {

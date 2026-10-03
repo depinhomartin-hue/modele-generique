@@ -12,7 +12,7 @@
    « d'origine » et des « exemplaires », héritage d'un site construit avant
    le système de blocs ; ce socle part sans cette distinction. */
 
-import { echapper, texteRiche, ed, afficher, identifiantValide } from "../outils.js";
+import { echapper, texteRiche, ed, afficher, identifiantValide, estVide } from "../outils.js";
 import { POLICES } from "../themes.js";
 
 /* Le réglage « fond », commun à toutes les sections. C'est la SEULE liste
@@ -80,6 +80,25 @@ export function fermer() {
    aux lecteurs d'écran (voir page.js). */
 export function niveau(ctx) {
   return ctx.premier ? "h1" : "h2";
+}
+
+/* Le niveau des sous-titres d'un bloc (une carte, un paragraphe) : un cran
+   sous le titre du bloc TEL QU'IL SERA RENDU.
+
+   Sur le site, un titre vide n'est pas écrit (`tete`). Les sous-titres
+   remontent alors d'un cran : un <h3> juste après le <h1> de la page
+   sauterait un niveau, et un lecteur d'écran les rangerait sous la
+   section précédente (relecture du 3 octobre 2026 : une page « Nos
+   engagements », une accroche puis une section Texte sans titre). En
+   édition, le titre vide reste dessiné pour qu'on puisse cliquer dedans :
+   les sous-titres gardent leur cran sous lui.
+
+   Le premier bloc de la page a toujours un <h1> au-dessus de lui — le
+   sien, ou celui que la page ajoute (page.js) : ses sous-titres sont des
+   <h2>. Une seule écriture pour tous les blocs qui ont des sous-titres. */
+export function sousNiveau(bloc, ctx) {
+  const titreEcrit = !!(ctx && ctx.edition) || !estVide(bloc && bloc.titre);
+  return (ctx && ctx.premier) || !titreEcrit ? "h2" : "h3";
 }
 
 /* Sur-titre, titre et introduction d'une section : la tête commune à

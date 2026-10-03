@@ -26,8 +26,29 @@ import { rendrePage, rendreCorps, PAGE_ACCUEIL } from "/rendu/page.js";
 import { BLOCS } from "/rendu/registre.js";
 import { POLICES } from "/rendu/themes.js";
 import { texteRiche, texteBrut, echapper, estVide } from "/rendu/outils.js";
+import { phraseFormulaireNonEnvoye } from "./textes.js";
 
 const riche = (html) => texteRiche(html, { polices: POLICES });
+
+/* Un formulaire de la page ne part JAMAIS du cadre (socle 0.3.0). Le
+   formulaire de contact vise `/contact`, sur le même site : envoyé depuis
+   l'aperçu, il aurait enregistré un vrai message — l'artisan s'écrivant à
+   lui-même —, alerte e-mail comprise, et fait quitter au cadre la page
+   écrite par l'éditeur. Tout `submit` est donc annulé, en édition comme en
+   aperçu ; la phrase rendue (vide en édition, où les champs sont
+   désactivés) dit pourquoi rien ne se passe. */
+export function soumissionAnnulee(evenement, mode) {
+  if (evenement && typeof evenement.preventDefault === "function") evenement.preventDefault();
+  return phraseFormulaireNonEnvoye(mode);
+}
+
+/* Un champ de formulaire de la PAGE (pas un texte modifiable de l'éditeur) :
+   en aperçu, on y tape comme un visiteur. Cmd + Z y annulait la dernière
+   modification du site au lieu de la dernière lettre tapée. */
+export function saisieDeFormulaire(cible) {
+  if (!cible || typeof cible.closest !== "function") return false;
+  return !!cible.closest("input, textarea, select") && !cible.closest("[data-edit]");
+}
 
 /* Le texte d'un champ, tel qu'on le range dans le contenu.
 
@@ -364,6 +385,9 @@ export function creerCadre(app, conteneur) {
       }
       return;
     }
+    // Dans un champ du formulaire de la page (aperçu) : les touches du
+    // navigateur, Cmd + Z compris.
+    if (saisieDeFormulaire(e.target)) return;
     // Hors d'un champ : l'annulation de l'éditeur.
     if (mod && !e.altKey && (cle === "z" || cle === "y")) {
       e.preventDefault();
@@ -422,6 +446,11 @@ export function creerCadre(app, conteneur) {
       });
     }
     doc.addEventListener("click", surClic);
+    // À la capture : aucun écouteur de la page ne passe avant.
+    doc.addEventListener("submit", (e) => {
+      const phrase = soumissionAnnulee(e, app.etat.mode);
+      if (phrase) app.signaler(phrase, { genre: "info" });
+    }, true);
     doc.addEventListener("auxclick", (e) => { if (e.target.closest && e.target.closest("a[href]")) e.preventDefault(); });
     doc.addEventListener("keydown", surTouche);
     doc.addEventListener("input", (e) => {

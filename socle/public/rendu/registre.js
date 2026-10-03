@@ -22,12 +22,15 @@ import galerie from "./blocs/galerie.js";
 import avis from "./blocs/avis.js";
 import horaires from "./blocs/horaires.js";
 import faq from "./blocs/faq.js";
+import texte from "./blocs/texte.js";
 import appel from "./blocs/appel.js";
 import contact from "./blocs/contact.js";
 
 /* L'ordre de cette liste est celui du choix « Ajouter une section » : de
-   l'entrée de la page vers le contact, comme on lit un site vitrine. */
-const ORDRE = [accroche, presentation, prestations, galerie, avis, horaires, faq, appel, contact];
+   l'entrée de la page vers le contact, comme on lit un site vitrine. Le
+   texte (3 octobre 2026) vient après la FAQ : c'est le bloc des pages
+   d'information, qu'on ajoute rarement à l'accueil. */
+const ORDRE = [accroche, presentation, prestations, galerie, avis, horaires, faq, texte, appel, contact];
 
 /* Les descriptions sont FIGÉES : l'éditeur les reçoit par référence, et un
    `choix.sort()` ou un `push` distrait de sa part changerait les règles du

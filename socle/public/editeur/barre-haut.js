@@ -14,6 +14,7 @@
 
 import { h, bouton, icone, idUnique } from "./dom.js";
 import { listePages } from "./liens.js";
+import { libellePastille, phraseNonLus } from "./messages.js";
 import { texteBrut } from "/rendu/outils.js";
 
 const ETATS = {
@@ -47,6 +48,13 @@ export function creerBarreHaut(app) {
   const bApercu = bouton({ libelle: "Aperçu", icone: "oeil", presse: false, classe: "ed-haut__apercu", quand: () => app.basculerApercu(), attributs: { "data-bulle": "Voir la page comme vos visiteurs" } });
   const etat = h("p", { classe: "ed-etat-enregistrement" });
   const bOutils = bouton({ libelle: "Outils", icone: "panneau", classe: "ed-haut__outils", quand: () => app.basculerTiroir(), attributs: { "aria-expanded": "false", "aria-controls": "ed-panneau" } });
+  /* Sous 900 px, l'onglet « Messages » est caché dans le tiroir : sa
+     pastille ne se verrait qu'une fois « Outils » ouvert. Le bouton porte
+     donc la sienne — un message de client qui attend ne doit pas attendre
+     qu'on aille fouiller (socle 0.3.0). */
+  const phraseOutils = h("span", { classe: "ed-cache" });
+  const pastilleOutils = h("span", { classe: "ed-pastille-compte", "aria-hidden": "true", hidden: true });
+  bOutils.append(phraseOutils, pastilleOutils);
   const bPublier = h("button", { type: "button", classe: "ed-bouton ed-bouton--principal ed-haut__publier" }, "Publier");
   bPublier.addEventListener("click", () => app.publier());
 
@@ -102,6 +110,12 @@ export function creerBarreHaut(app) {
     },
     majTiroir(ouvert) {
       bOutils.setAttribute("aria-expanded", String(ouvert));
+    },
+    majMessages(n) {
+      const t = libellePastille(n);
+      pastilleOutils.textContent = t;
+      pastilleOutils.hidden = !t;
+      phraseOutils.textContent = t ? ", " + phraseNonLus(n) : "";
     },
     focusTiroir: () => bOutils.focus()
   };

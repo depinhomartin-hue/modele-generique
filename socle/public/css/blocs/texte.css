@@ -1,0 +1,11 @@
+/* Le texte — les pages d'information (mentions légales, conditions) :
+   une colonne étroite, des sous-titres qui rythment la lecture.
+
+   Aucune couleur ici : tout hérite du contexte de la section (clair,
+   teinté, foncé — socle.css), donc des couples déjà mesurés. */
+.texte__liste { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: clamp(28px, 4vw, 44px); }
+.texte__paragraphe { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.texte__sous-titre { font-size: calc(clamp(1.3rem, 1.15rem + .6vw, 1.6rem) * var(--echelle-titre, 1)); }
+/* Une adresse e-mail ou un numéro très long se coupe plutôt que
+   d'élargir la page sur un téléphone. */
+.texte__paragraphe .texte-courant { overflow-wrap: break-word; }

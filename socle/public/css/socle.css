@@ -254,6 +254,9 @@ main:focus { outline: none; }
   padding-block: 18px 28px;
   color: var(--texte-doux); font-size: .88rem;
 }
+/* Le lien des mentions légales (page.js) : souligné, en sur-sombre sur le
+   sombre — un couple mesuré. */
+.pied__bas a { color: var(--texte); }
 
 /* ----- En édition : le cadre d'une photo à choisir -----
    (le reste de l'habillage de l'éditeur vivra dans sa propre feuille) */

@@ -15,9 +15,10 @@
 
 import { PAGE_ACCUEIL, ancresDeLaPage } from "/rendu/page.js";
 import { nouveauBloc, typeConnu } from "/rendu/registre.js";
-import { descripteurListe, nouvelIdBloc, idDePage, cheminsVers, liensDansLesTextes, reecrireLiensDansTexte, lireChemin, ecrireChemin } from "/rendu/structure.js";
+import { descripteurListe, nouvelIdBloc, idDePage, cheminsVers, liensDansLesTextes, reecrireLiensDansTexte, lireChemin, ecrireChemin, compterTrous, restesDuModele, mentionsPresentes } from "/rendu/structure.js";
+import { PAGE_MENTIONS } from "/rendu/modeles-pages.js";
 import { echapper, identifiantValide, texteBrut } from "/rendu/outils.js";
-import { Refus, pageDuLien, cibleInterne, analyserDestination } from "./liens.js";
+import { Refus, pageDuLien, cibleInterne, analyserDestination, nomDePage } from "./liens.js";
 
 export { Refus };
 
@@ -333,6 +334,147 @@ function liensVersLaPage(contenu, pageId) {
     const b = /^blocs\.([^.]+)\./.exec(l.chemin);
     return !(b && propres.has(b[1]) && !Object.entries(contenu.pages).some(([id, q]) => id !== pageId && q.ordre.includes(b[1])));
   });
+}
+
+/* Une page toute faite (la page des mentions légales : `pageMentionsLegales`,
+   /rendu/modeles-pages.js), rangée dans le contenu. Le modèle est fabriqué
+   par le rendu, qui ne touche à rien ; ce geste-ci l'insère, après les
+   mêmes contrôles que le serveur : identifiants libres et valides, genres
+   connus, plafonds de pages et de sections. Il n'ajoute RIEN au menu : le
+   lien des mentions légales est structurel, en bas de chaque page (un
+   lien de liste peut s'effacer par mégarde).
+   `modele` : `{ pageId, page: { titre, description, ordre }, blocs: { id: bloc } }`.
+   Rend `{ pageId }`. */
+const MODELE_ABIME = "Cette page n'a pas pu être créée : votre éditeur n'est peut-être pas à jour. Rechargez la page (Cmd + Maj + R sur Mac, Ctrl + Maj + R sur PC), puis réessayez.";
+export function ajouterPageModele(contenu, modele) {
+  const m = modele && typeof modele === "object" && !Array.isArray(modele) ? modele : {};
+  const pageId = m.pageId;
+  if (!identifiantValide(pageId)) throw new Refus(MODELE_ABIME);
+  if (aEnPropre(contenu.pages, pageId)) throw new Refus("Cette page existe déjà sur votre site : retrouvez-la dans la liste des pages.");
+  if (Object.keys(contenu.pages).length >= MAX_PAGES) throw new Refus("Votre site a déjà " + MAX_PAGES + " pages : c'est le maximum. Supprimez-en une pour ajouter celle-ci.");
+  const p = m.page && typeof m.page === "object" && !Array.isArray(m.page) ? m.page : null;
+  const blocs = m.blocs && typeof m.blocs === "object" && !Array.isArray(m.blocs) ? m.blocs : null;
+  if (!p || !blocs || !Array.isArray(p.ordre)) throw new Refus(MODELE_ABIME);
+  // Seuls les blocs que la page montre entrent : un bloc rangé sans page
+  // serait invisible et impossible à retirer depuis l'éditeur.
+  const ordre = [...new Set(p.ordre.filter((id) => typeof id === "string" && aEnPropre(blocs, id)))];
+  if (!ordre.length) throw new Refus(MODELE_ABIME);
+  for (const id of ordre) {
+    const b = blocs[id];
+    if (!identifiantValide(id) || aEnPropre(contenu.blocs, id) || !b || typeof b !== "object" || !typeConnu(b.type)) throw new Refus(MODELE_ABIME);
+  }
+  if (nombreDeBlocs(contenu) + ordre.length > MAX_BLOCS) throw new Refus("Votre site a déjà " + MAX_BLOCS + " sections : supprimez-en une avant d'ajouter cette page.");
+  for (const id of ordre) contenu.blocs[id] = copie(blocs[id]);
+  contenu.pages[pageId] = {
+    titre: typeof p.titre === "string" ? p.titre : "",
+    description: typeof p.description === "string" ? p.description : "",
+    ordre
+  };
+  return { pageId };
+}
+
+/* Les « [À compléter …] » laissés par un modèle de page, COMPTÉS : l'onglet
+   « Site » dit combien il en reste. Le compte vient de structure.js
+   (`compterTrous`), celui-là même qui nourrit l'avertissement de
+   publication (`restesDuModele`) : ce module en tenait une copie, presque
+   identique, que rien n'empêchait de diverger (3 octobre 2026). Sections
+   VISIBLES seulement : une section masquée n'est pas sur le site.
+
+   ⚠️ Sauf sur la page des mentions légales. Masquer sa section faisait
+   taire le compte (« Relisez-la quand quelque chose change »), alors que la
+   page restait OBLIGATOIRE et que le lien du bas de page continuait d'y
+   mener — vers une page vide. Cacher un « [À compléter » n'est pas le
+   remplir : là, on compte aussi ce qui est masqué (relecture du
+   3 octobre 2026). */
+export function trousDuBloc(bloc) {
+  return bloc && typeof bloc === "object" && bloc.masque !== true ? compterTrous(bloc) : 0;
+}
+export function trousACompleter(contenu, pageId) {
+  const p = contenu && aEnPropre(contenu.pages, pageId) ? contenu.pages[pageId] : null;
+  if (!p || typeof p !== "object" || !Array.isArray(p.ordre)) return 0;
+  const compter = pageId === PAGE_MENTIONS
+    ? (b) => (b && typeof b === "object" ? compterTrous(b) : 0)
+    : trousDuBloc;
+  return [...new Set(p.ordre)].reduce((n, id) => n + (typeof id === "string" && aEnPropre(contenu.blocs, id) ? compter(contenu.blocs[id]) : 0), 0);
+}
+
+/* La page des mentions légales, telle que la verront les visiteurs :
+   `existe`, `sections` (rangées dans la page), `masquees`, `vide` (elle
+   existe mais n'affiche rien à lire), `trous` (masqués compris, voir
+   `trousACompleter`).
+   Relecture du 3 octobre 2026 : masquer la section pour faire taire
+   l'avertissement de publication vidait la page sans que rien ne le dise.
+   « Vide » se lit dans structure.js (`mentionsPresentes`), la règle même
+   du bas de page et du contrôle qualité : une seconde écriture ici aurait
+   fini par dire « remplie » une page que le site tient pour vide. */
+export function etatPageMentions(contenu) {
+  const r = { existe: false, sections: 0, masquees: 0, vide: false, trous: 0 };
+  if (!contenu || typeof contenu !== "object" || !aEnPropre(contenu.pages, PAGE_MENTIONS)) return r;
+  r.existe = true;
+  const p = contenu.pages[PAGE_MENTIONS];
+  const ordre = p && Array.isArray(p.ordre) ? [...new Set(p.ordre)] : [];
+  for (const id of ordre) {
+    if (typeof id !== "string" || !aEnPropre(contenu.blocs, id)) continue;
+    const b = contenu.blocs[id];
+    if (!b || typeof b !== "object" || !typeConnu(b.type)) continue;
+    r.sections++;
+    if (b.masque === true) r.masquees++;
+  }
+  r.vide = !mentionsPresentes(contenu);
+  r.trous = trousACompleter(contenu, PAGE_MENTIONS);
+  return r;
+}
+
+/* Ce que la fenêtre « Publier vos modifications ? » signale, sans bloquer
+   (un texte d'exemple peut être gardé exprès) : les sections qui montrent
+   encore un texte ou une photo d'exemple, ou un « [À compléter …] »
+   (`restesDuModele`, structure.js), nommées une à une ; et, à part, la page
+   des mentions légales qui n'afficherait RIEN.
+   Le second avertissement vient d'ici (`etatPageMentions`) ET de
+   structure.js s'il le donne (`{ pageId, vide: true }`) : dit une seule
+   fois. Une section masquée que structure.js signalerait
+   (`masque: true`) n'entre pas dans la liste « vos visiteurs les verront
+   tels quels » : ils ne la verront pas — c'est justement ce qui manque.
+   Rend `null` s'il n'y a rien à dire. */
+export function avertissementPublication(contenu) {
+  const tous = restesDuModele(contenu).filter((r) => r && typeof r === "object");
+  const restes = tous.filter((r) => !r.vide && r.masque !== true);
+  const mentions = etatPageMentions(contenu);
+  const vide = mentions.vide || tous.some((r) => r.vide && r.pageId === PAGE_MENTIONS);
+  const masquesATrous = !vide && (tous.some((r) => r.masque === true && r.pageId === PAGE_MENTIONS) ||
+    mentions.trous > trousVisiblesDesMentions(contenu));
+  if (!restes.length && !vide && !masquesATrous) return null;
+  const multi = !!contenu && !!contenu.pages && Object.keys(contenu.pages).length > 1;
+  // Les « [À compléter …] » des mentions légales ne sont pas des textes
+  // d'exemple : la phrase d'en-tête dit ce qu'on trouvera.
+  const trous = restes.filter((r) => r.aCompleter).length;
+  const quoi = !trous ? "des textes ou des photos d'exemple"
+    : trous === restes.length ? "des « [À compléter …] »"
+    : "des textes ou des photos d'exemple, ou des « [À compléter …] »";
+  return {
+    nombre: restes.length + (vide || masquesATrous ? 1 : 0),
+    intro: restes.length ? (restes.length > 1 ? "Ces sections contiennent encore " : "Cette section contient encore ") + quoi + ". Vos visiteurs les verront tels quels :" : null,
+    lignes: restes.map((r) => "« " + r.nom + " »" +
+      (multi ? " (page « " + nomDePage(contenu, r.pageId) + " »)" : "") +
+      // Un « [À compléter …] » se cherche autrement qu'un texte d'exemple :
+      // on dit lequel des deux c'est.
+      (r.aCompleter ? (r.photo ? " : « [À compléter …] » à remplir, et photo" : " : « [À compléter …] » à remplir")
+        : r.texte && r.photo ? " : texte et photo" : r.photo ? " : photo" : " : texte")),
+    mentions: vide
+      ? "La page des mentions légales n'affiche rien" +
+        (mentions.masquees ? (mentions.masquees > 1 ? " : ses sections sont masquées" : " : sa section est masquée") : "") +
+        ". Vos visiteurs n'auront donc pas accès à vos mentions légales, qui sont obligatoires. Pour la remplir : onglet « Site », « Voir la page des mentions légales »."
+      : masquesATrous
+        ? "Une section masquée de la page des mentions légales contient encore des « [À compléter …] » : ces informations obligatoires manquent à vos visiteurs."
+        : null
+  };
+}
+/* Les trous des seules sections VISIBLES des mentions : la différence avec
+   le compte complet, ce sont les trous cachés dans une section masquée. */
+function trousVisiblesDesMentions(contenu) {
+  const p = contenu && contenu.pages && aEnPropre(contenu.pages, PAGE_MENTIONS) ? contenu.pages[PAGE_MENTIONS] : null;
+  if (!p || !Array.isArray(p.ordre)) return 0;
+  return [...new Set(p.ordre)].reduce((n, id) => n + (typeof id === "string" && aEnPropre(contenu.blocs, id) ? trousDuBloc(contenu.blocs[id]) : 0), 0);
 }
 
 export function supprimerPage(contenu, pageId) {

@@ -6,14 +6,21 @@
 
    Le Worker est appelé directement (creerSite().fetch), sans serveur : Node
    connaît Request, Response et Headers. */
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { execFileSync } from "node:child_process";
 import { creerSite } from "../socle/worker.js";
 import { normaliser, rendrePage, rendreCorps, rendreBloc, ancresDeLaPage } from "../socle/public/rendu/page.js";
-import { texteRiche, texteBrut, adresseSure, imageSure, lienTelephone, destination, identifiantValide } from "../socle/public/rendu/outils.js";
-import { echelleValide, themeDe } from "../socle/public/rendu/themes.js";
+import { texteRiche, texteBrut, echapper, adresseSure, imageSure, lienTelephone, destination, identifiantValide } from "../socle/public/rendu/outils.js";
+import { echelleValide, themeDe, THEMES, COUPLES } from "../socle/public/rendu/themes.js";
 import { BLOCS, CATALOGUE, nouveauBloc, valeurReglage, reglageActif } from "../socle/public/rendu/registre.js";
-import { restesDuModele } from "../socle/public/rendu/structure.js";
+import { restesDuModele, contientUnTrou, compterTrous, mentionsPresentes, PAGE_MENTIONS as PAGE_MENTIONS_STRUCTURE } from "../socle/public/rendu/structure.js";
+import { LIBELLES } from "../socle/public/rendu/libelles.js";
+import { PAGE_MENTIONS, pageMentionsLegales } from "../socle/public/rendu/modeles-pages.js";
+import { donneesStructurees, plagesHoraires, lignesHorairesIllisibles, jsonLdSur, baliseDonneesStructurees, CATEGORIES_GOOGLE } from "../socle/public/rendu/donnees-structurees.js";
+import { CHAMPS_CONTACT, CHAMP_PIEGE, REGLES_CONTACT, ERREURS_CONTACT, validerMessage, MOTIF_TELEPHONE, MOTIF_EMAIL, MOTIF_NOM } from "../socle/public/rendu/formulaire.js";
 import { REGLAGE_FOND, FONDS } from "../socle/public/rendu/blocs/commun.js";
 import {
   LISTES_SITE, descripteurListe, nouvelIdBloc, PAGES_RESERVEES, idDePage, cheminAlt, nomDuBloc,
@@ -25,6 +32,14 @@ const lire = (f) => JSON.parse(readFileSync(racine + f, "utf8"));
 const client = lire("clients/demo-boulangerie/client.json");
 const contenuLivre = lire("clients/demo-boulangerie/contenu.json");
 const ORIGINE = "https://demo.test";
+
+/* Les données structurées pour Google (`<script type="application/ld+json">`)
+   sont le SEUL script toléré dans une page publique : ce n'est pas du code
+   exécuté (3 octobre 2026). La forme est celle qu'écrit le rendu ; le JSON
+   y est échappé et ne contient jamais « < ». */
+const JSON_LD = /<script type="application\/ld\+json">([^<]*)<\/script>/g;
+const sansDonneesStructurees = (html) => html.replace(JSON_LD, "");
+const donneesDe = (html) => [...html.matchAll(JSON_LD)].map((m) => JSON.parse(m[1]));
 
 let ok = 0;
 const echecs = [];
@@ -50,7 +65,8 @@ const memeOrigine = (location) => {
   verifier("politique de contenu présente", /script-src 'self'/.test(r.entetes.get("content-security-policy") || ""));
   verifier("maquette non indexée (en-tête)", /noindex/.test(r.entetes.get("x-robots-tag") || ""));
   verifier("un seul <h1>", (r.corps.match(/<h1[\s>]/g) || []).length === 1);
-  verifier("aucun script dans la page publique", !/<script/i.test(r.corps));
+  verifier("aucun script dans la page publique (hors données structurées)", !/<script/i.test(sansDonneesStructurees(r.corps)));
+  verifier("données structurées : une seule fois sur l'accueil, en JSON lisible", donneesDe(r.corps).length === 1 && donneesDe(r.corps)[0].name === "Au Pétrin d'Ernestine");
   verifier("aucune marque d'édition dans la page publique", !/data-edit|data-sans-lien|data-masque|data-liste/.test(r.corps));
 }
 {
@@ -297,7 +313,7 @@ function sections(html) {
 
 /* ----- Le catalogue et les descriptions des blocs ----- */
 {
-  const ORDRE = ["accroche", "presentation", "prestations", "galerie", "avis", "horaires", "faq", "appel", "contact"];
+  const ORDRE = ["accroche", "presentation", "prestations", "galerie", "avis", "horaires", "faq", "texte", "appel", "contact"];
   verifier("catalogue : tous les genres, dans l'ordre d'« Ajouter une section »",
     CATALOGUE.map((x) => x.type).join() === ORDRE.join() && Object.keys(BLOCS).join() === ORDRE.join());
   verifier("catalogue : nom et phrase repris du module",
@@ -318,8 +334,9 @@ function sections(html) {
     REGLAGE_FOND.choix.map((c) => c.libelle).join() === "Clair,Teinté,Foncé");
 
   // Le tableau de la spécification (§ 5.2), tel quel.
-  const REGLAGES_ATTENDUS = { accroche: "disposition,fond", presentation: "fond,inverse", prestations: "fond", galerie: "fond", avis: "fond", horaires: "fond", faq: "fond", appel: "fond", contact: "fond" };
-  const LISTES_ATTENDUES = { accroche: "boutons:2", presentation: "", prestations: "elements:12", galerie: "images:24", avis: "avis:12", horaires: "jours:14", faq: "questions:20", appel: "", contact: "" };
+  // Socle 0.3.0 : le bloc « texte », et la case du formulaire de contact.
+  const REGLAGES_ATTENDUS = { accroche: "disposition,fond", presentation: "fond,inverse", prestations: "fond", galerie: "fond", avis: "fond", horaires: "fond", faq: "fond", texte: "fond", appel: "fond", contact: "fond,formulaire" };
+  const LISTES_ATTENDUES = { accroche: "boutons:2", presentation: "", prestations: "elements:12", galerie: "images:24", avis: "avis:12", horaires: "jours:14", faq: "questions:20", texte: "paragraphes:40", appel: "", contact: "" };
   for (const [type, def] of Object.entries(BLOCS)) {
     const modele = def.modele();
     const problemes = [];
@@ -590,7 +607,7 @@ const demo = normaliser(copieDe(contenuLivre));
   for (const t of Object.keys(BLOCS)) { c.blocs[t + "-9"] = nouveauBloc(t); c.pages.accueil.ordre.push(t + "-9"); }
   const ids = restesDuModele(c).map((r) => r.id).sort().join(",");
   verifier("une section neuve est signalée (sauf appel et contact, sans texte à remplacer)",
-    ids === "accroche-9,avis-9,faq-9,galerie-9,horaires-9,presentation-9,prestations-9", ids);
+    ids === "accroche-9,avis-9,faq-9,galerie-9,horaires-9,presentation-9,prestations-9,texte-9", ids);
   const galerie = restesDuModele(c).find((r) => r.id === "galerie-9");
   verifier("la galerie neuve : des photos d'exemple, pas de texte", galerie && galerie.photo && !galerie.texte);
   c.blocs["horaires-9"].jours[1].heures = "8 h – 12 h";
@@ -817,6 +834,693 @@ const demo = normaliser(copieDe(contenuLivre));
   reecrireLiensDansTexte('<a href="/a">x</a>'.repeat(1500) + "<a " + "x".repeat(15000), () => "");
   liensDansLesTextes({ pied: { texte: "<a href=\"".repeat(4000) } });
   verifier("liens des textes : pas de temps quadratique", performance.now() - t0 < 100, Math.round(performance.now() - t0) + " ms");
+}
+
+/* =========================================================
+   Socle 0.3.0 — chantier « rendu » (3 octobre 2026)
+   Bloc texte, page des mentions légales, données structurées pour
+   Google, formulaire de contact.
+   ========================================================= */
+const figerTout = (v) => { if (v && typeof v === "object") { Object.freeze(v); Object.values(v).forEach(figerTout); } return v; };
+const avecMentions = (c) => {
+  const r = pageMentionsLegales(c);
+  c.pages[r.pageId] = r.page;
+  Object.assign(c.blocs, r.blocs);
+  return r;
+};
+const PRESENTATION_LIB = { nom: "contactNom", email: "contactEmail", telephone: "contactTelephone", message: "contactMessage" };
+const sansMentions = () => { const c = copieDe(contenuLivre); delete c.pages[PAGE_MENTIONS]; delete c.blocs["texte-1"]; return c; };
+
+/* ----- Le bloc « texte » ----- */
+{
+  const def = BLOCS.texte;
+  verifier("texte : le modèle de la spécification, tel quel",
+    JSON.stringify(def.modele()) === JSON.stringify({ type: "texte", surtitre: "", titre: "Un titre", intro: "", paragraphes: [{ titre: "Un sous-titre", texte: "Un paragraphe de texte." }] }),
+    JSON.stringify(def.modele()));
+  verifier("texte : nom, phrase, réglages, liste et exemples de la spécification",
+    def.nom === "Texte" &&
+    def.description === "Un titre et des paragraphes, pour les pages d'information : mentions légales, conditions, engagements." &&
+    def.reglages.length === 1 && def.reglages[0] === REGLAGE_FOND &&
+    def.listes.paragraphes.libelle === "un paragraphe" && def.listes.paragraphes.max === 40 &&
+    def.exemples.join() === "titre,paragraphes.*.titre,paragraphes.*.texte");
+
+  const page = (paragraphes, avant = []) => normaliser({
+    pages: { accueil: { ordre: avant.concat("texte-1") } },
+    blocs: Object.assign({ "texte-1": { type: "texte", titre: "Conditions", paragraphes } }, ...avant.map((id) => ({ [id]: { type: "faq", titre: "Avant" } })))
+  });
+  const c = page([{ titre: "Premier", texte: "Un <b>texte</b><script>x</script>" }, { titre: "", texte: "Sans sous-titre" }, { titre: "", texte: "" }]);
+  const pub = rendreCorps({ contenu: c, client: {} });
+  const edi = rendreCorps({ contenu: c, client: {}, edition: true });
+  verifier("texte : premier de la page, son titre est le <h1> et ses sous-titres des <h2>",
+    nbH1(pub) === 1 && /<h1 class="titre-section">Conditions<\/h1>/.test(pub) && /<h2 class="texte__sous-titre">Premier<\/h2>/.test(pub) && !/<h3/.test(pub));
+  const suivi = rendreCorps({ contenu: page([{ titre: "Premier", texte: "x" }], ["faq-1"]), client: {} });
+  verifier("texte : après une autre section, titre en <h2> et sous-titres en <h3>",
+    /<h2 class="titre-section">Conditions<\/h2>/.test(suivi) && /<h3 class="texte__sous-titre">Premier<\/h3>/.test(suivi));
+  verifier("texte : dans une colonne étroite, chaque paragraphe dans un élément de liste, le texte riche nettoyé",
+    pub.includes('<div class="conteneur conteneur--etroit">') && (pub.match(/<li class="texte__paragraphe">/g) || []).length === 2 &&
+    pub.includes('<div class="texte-courant">Un <b>texte</b>x</div>') && !pub.includes("<script"));
+  verifier("texte : un sous-titre vide disparaît sur le site, reste cliquable en édition",
+    (pub.match(/texte__sous-titre/g) || []).length === 1 && edi.includes('data-edit="blocs.texte-1.paragraphes.1.titre" data-edit-riche>'));
+  verifier("texte : un paragraphe tout vide n'est pas rendu sur le site, il l'est en édition",
+    !pub.includes('data-index="2"') && edi.includes('data-liste="blocs.texte-1.paragraphes" data-index="2"'));
+  verifier("texte : le paragraphe est du texte riche sur plusieurs lignes en édition",
+    edi.includes('<div class="texte-courant" data-edit="blocs.texte-1.paragraphes.0.texte" data-edit-riche data-edit-lignes>'));
+  const trou = rendreCorps({ contenu: page([null, { titre: "B", texte: "b" }]), client: {}, edition: true });
+  verifier("texte : un élément abîmé est sauté sans décaler les indices",
+    trou.includes('data-edit="blocs.texte-1.paragraphes.1.titre"') && !trou.includes("paragraphes.0."));
+  /* Relecture du 3 octobre 2026 : une section Texte (ou Prestations) SANS
+     titre, après une accroche. Sur le site, son titre vide disparaît, et
+     ses sous-titres restaient en <h3> juste après le <h1> : un niveau
+     sauté, et un lecteur d'écran les rangeait sous la section d'avant. */
+  const niveaux = (html) => [...(html.match(/<main[\s\S]*<\/main>/) || [""])[0].matchAll(/<h([1-6])[\s>]/g)].map((m) => Number(m[1]));
+  const sauts = (html) => niveaux(html).filter((n, i, t) => i > 0 && n > t[i - 1] + 1).length;
+  const sansTitre = (bloc, avant) => normaliser({
+    site: { nom: "Essai" },
+    pages: { accueil: { ordre: avant.concat("x-1") } },
+    blocs: Object.assign({ "x-1": bloc }, ...avant.map((id) => ({ [id]: id === "accroche-1" ? { type: "accroche", titre: "Bienvenue" } : { type: "presentation", titre: "Notre histoire", texte: "x" } })))
+  });
+  const fautesNiveaux = [];
+  for (const [genre, bloc] of [["texte", { type: "texte", titre: "", paragraphes: [{ titre: "Farines locales", texte: "x" }, { titre: "Zéro gaspillage", texte: "y" }] }],
+    ["prestations", { type: "prestations", titre: "", elements: [{ titre: "Pain", texte: "x" }] }]]) {
+    for (const avant of [["accroche-1"], ["accroche-1", "presentation-1"], []]) {
+      for (const edition of [false, true]) {
+        const html = rendrePage({ contenu: sansTitre(bloc, avant), client: {}, edition });
+        if (sauts(html) || nbH1(html) !== 1) fautesNiveaux.push(genre + " après [" + avant.join(", ") + "]" + (edition ? " en édition" : "") + " : " + niveaux(html).join(" "));
+      }
+    }
+    // Avec un titre, rien ne change : h2 puis h3.
+    const titre = rendrePage({ contenu: sansTitre(Object.assign({}, bloc, { titre: "Engagements" }), ["accroche-1"]), client: {} });
+    if (niveaux(titre).join() !== "1,2," + (genre === "texte" ? "3,3" : "3")) fautesNiveaux.push(genre + " avec titre : " + niveaux(titre).join(" "));
+  }
+  verifier("texte et prestations : jamais un niveau de titre sauté, avec ou sans titre de section, sur le site comme en édition",
+    fautesNiveaux.length === 0, fautesNiveaux.join(" ; "));
+  verifier("texte : sa feuille existe et ne pose aucune couleur (tout vient du contexte de la section)",
+    !/color|background|#[0-9a-f]{3}/i.test(readFileSync(racine + "socle/public/css/blocs/texte.css", "utf8").replace(/\/\*[\s\S]*?\*\//g, "")));
+}
+
+/* ----- La page des mentions légales ----- */
+{
+  verifier("mentions : l'adresse « mentions-legales », qui n'est pas réservée", PAGE_MENTIONS === "mentions-legales" && !PAGES_RESERVEES.has(PAGE_MENTIONS));
+  const base = sansMentions();
+  const fige = figerTout(copieDe(base));
+  const avant = JSON.stringify(fige);
+  let r;
+  try { r = pageMentionsLegales(fige); } catch (e) { r = null; }
+  const libre = copieDe(base);
+  pageMentionsLegales(libre);
+  verifier("mentions : n'écrit rien dans le contenu reçu (figé, il ne lève pas ; libre, il reste intact)",
+    !!r && JSON.stringify(fige) === avant && JSON.stringify(libre) === avant);
+  verifier("mentions : { pageId, page, blocs }, la page et sa section texte",
+    Object.keys(r).join() === "pageId,page,blocs" && r.pageId === "mentions-legales" &&
+    r.page.titre === "Mentions légales" && r.page.description === "Qui édite ce site, qui l'héberge, et ce que deviennent vos données." &&
+    r.page.ordre.length === 1 && r.page.ordre[0] === "texte-1" && Object.keys(r.blocs).join() === "texte-1" &&
+    r.blocs["texte-1"].type === "texte" && r.blocs["texte-1"].titre === "Mentions légales");
+  const p = r.blocs["texte-1"].paragraphes;
+  /* Relecture du 3 octobre 2026 : la première version n'avait que cinq
+     paragraphes, sans médiateur de la consommation ni identité légale ni
+     TVA, demandait un numéro au « répertoire des métiers » (remplacé par
+     le RNE depuis 2023), et son paragraphe « Données personnelles » ne
+     disait ni base légale, ni destinataires, ni transfert, ni tous les
+     droits (RGPD, article 13). Les contrôles la déclaraient conforme une
+     fois ses trous remplis. */
+  verifier("mentions : les six paragraphes, dans l'ordre (médiation comprise)",
+    p.map((x) => x.titre).join(" | ") === "Éditeur du site | Responsable de la publication | Hébergement | Médiation de la consommation | Propriété intellectuelle | Données personnelles",
+    p.map((x) => x.titre).join(" | "));
+  verifier("mentions : le nom du site n'est qu'un nom commercial",
+    p[0].texte.startsWith("Nom commercial : Au Pétrin d'Ernestine<br>") && !JSON.stringify(r).includes("nom de l'entreprise"));
+  const editeur = texteBrut(p[0].texte);
+  verifier("mentions : l'éditeur — identité et forme juridique, siège, SIREN, RNE ou RCS, TVA, téléphone et e-mail à compléter",
+    editeur.includes("[À compléter : forme juridique, par exemple entreprise individuelle (EI) — dans ce cas, le nom et le prénom de l'entrepreneur —, micro-entreprise, EURL, SARL ou SAS au capital de … € — dans ce cas, la dénomination sociale]") &&
+    editeur.includes("Adresse du siège : [À compléter]") && editeur.includes("SIREN ou SIRET : [À compléter]") &&
+    editeur.includes("Immatriculation : [À compléter : Registre national des entreprises (RNE), et pour une société ou un commerçant « RCS de <ville> n° … »]") &&
+    editeur.includes("TVA : [À compléter : numéro de TVA intracommunautaire FR…, ou « TVA non applicable, article 293 B du CGI »]") &&
+    editeur.includes("Téléphone : [À compléter] — E-mail : [À compléter]"), editeur);
+  verifier("mentions : plus aucun « répertoire des métiers » (remplacé par le RNE au 1er janvier 2023)",
+    !/r[ée]pertoire des m[ée]tiers/i.test(texteBrut(JSON.stringify(r))));
+  verifier("mentions : le responsable de la publication à compléter", p[1].texte === "[À compléter : prénom et nom]");
+  verifier("mentions : l'hébergeur, vérifié le 3 octobre 2026",
+    texteBrut(p[2].texte) === "Cloudflare, Inc., 101 Townsend Street, San Francisco, CA 94107, États-Unis. Téléphone : +1 888 993 5273. www.cloudflare.com", texteBrut(p[2].texte));
+  // Chaque paragraphe cherché par son sous-titre : un modèle qui en
+  // perdrait un échoue ici, il ne fait pas tomber le reste des tests.
+  const par = (titre) => { const x = p.find((y) => y && y.titre === titre); return x && typeof x.texte === "string" ? x.texte : ""; };
+  verifier("mentions : le médiateur de la consommation (Code de la consommation, L612-1), à compléter",
+    par("Médiation de la consommation") === "Conformément à l'article L612-1 du Code de la consommation, vous pouvez recourir gratuitement à un médiateur de la consommation : " +
+      "[À compléter : nom, adresse postale et site internet du médiateur].", par("Médiation de la consommation"));
+  verifier("mentions : la propriété intellectuelle sans trou de plus", /appartiennent à son éditeur, sauf mention contraire/.test(par("Propriété intellectuelle")) && !contientUnTrou(par("Propriété intellectuelle")));
+  const donnees = texteBrut(par("Données personnelles"));
+  // Chaque information de l'article 13 du RGPD, et rien qu'on ne puisse
+  // tenir : aucune certification précise du transfert n'est affirmée.
+  const RGPD = ["responsable du traitement", "votre nom, votre adresse e-mail, votre téléphone si vous le donnez, et votre message",
+    "uniquement à répondre à votre demande", "Base légale : les mesures précontractuelles prises à votre demande, ou notre intérêt légitime à vous répondre",
+    "Cloudflare", "sous-traitant", "hors de l'Union européenne, avec les garanties prévues par le RGPD", "un an au plus sur le site",
+    "accéder", "rectifier", "effacer", "vous opposer", "limitation", "portabilité", "écrivez à [À compléter : adresse e-mail]",
+    "réclamation à la CNIL (www.cnil.fr)", "aucun cookie",
+    "Les polices de caractères sont fournies par Google Fonts : pour les afficher, votre navigateur transmet votre adresse IP à Google."];
+  const manquants = RGPD.filter((m) => !donnees.includes(m));
+  verifier("mentions : données personnelles — tout ce que demande l'article 13 du RGPD, et la phrase sur Google Fonts",
+    manquants.length === 0 && !/Privacy Framework|clauses contractuelles/i.test(donnees), manquants.join(" | ") || donnees);
+  verifier("mentions : les « [À compléter …] » comptés — 10 avec le nom du site (forme, siège, SIREN, immatriculation, TVA, téléphone, e-mail, responsable, médiateur, adresse des droits)",
+    compterTrous(r.blocs) === 10, String(compterTrous(r.blocs)));
+
+  const sansNom = pageMentionsLegales({ blocs: { "texte-1": {}, "texte-2": {} } });
+  verifier("mentions : sans nom de site, le trou du nom ; identifiant libre suivant",
+    sansNom.blocs["texte-3"].paragraphes[0].texte.startsWith("Nom commercial : [À compléter : nom de l'entreprise]<br>") && sansNom.page.ordre[0] === "texte-3" &&
+    compterTrous(sansNom.blocs) === 11);
+  const piege = pageMentionsLegales({ site: { nom: "Pain & <Co>" }, blocs: {} });
+  verifier("mentions : un nom avec « & » ou « < » entre échappé dans le texte riche",
+    piege.blocs["texte-1"].paragraphes[0].texte.startsWith("Nom commercial : Pain &amp; &lt;Co&gt;<br>") &&
+    texteRiche(piege.blocs["texte-1"].paragraphes[0].texte).startsWith("Nom commercial : Pain &amp; &lt;Co&gt;<br>"));
+  verifier("mentions : l'adresse vit dans structure.js, modeles-pages.js la réexporte", PAGE_MENTIONS === PAGE_MENTIONS_STRUCTURE);
+  const t = { toString: 1 };
+  const levees = [null, undefined, 42, "x", [], t, { site: t, blocs: t }, { site: { nom: t }, blocs: [] }, { blocs: { "texte-1": null } }]
+    .filter((x) => { try { return !pageMentionsLegales(x).blocs; } catch { return true; } });
+  verifier("mentions : contenu abîmé — jamais d'exception", levees.length === 0, String(levees.length));
+  const deux = pageMentionsLegales(base);
+  deux.blocs["texte-1"].paragraphes[0].texte = "changé";
+  verifier("mentions : deux appels, deux objets neufs", pageMentionsLegales(base).blocs["texte-1"].paragraphes[0].texte !== "changé");
+
+  // Rangée dans un contenu, la page se rend, et l'éditeur signale ses trous.
+  const c = sansMentions();
+  avecMentions(c);
+  const n = normaliser(c);
+  const html = rendrePage({ contenu: n, client, pageId: PAGE_MENTIONS, chemin: "/mentions-legales" });
+  verifier("mentions : la page se rend, un seul <h1> « Mentions légales », des <h2> pour les paragraphes",
+    nbH1(html) === 1 && html.includes('<h1 class="titre-section">Mentions légales</h1>') && (html.match(/<h2 class="texte__sous-titre">/g) || []).length === 6 &&
+    html.includes("<title>Mentions légales · Au Pétrin d&#39;Ernestine</title>"));
+  const restes = restesDuModele(n);
+  verifier("mentions : les « [À compléter » sont signalés avant de publier (texte, et aCompleter)",
+    restes.length === 1 && restes[0].id === "texte-1" && restes[0].pageId === PAGE_MENTIONS && restes[0].texte === true && restes[0].photo === false && restes[0].aCompleter === true,
+    JSON.stringify(restes));
+  for (const para of n.blocs["texte-1"].paragraphes) {
+    para.texte = para.texte.replace(/\[À compléter[^\]]*\]/g, "rempli");
+  }
+  verifier("mentions : une fois remplie, plus rien n'est signalé", restesDuModele(n).length === 0, JSON.stringify(restesDuModele(n)));
+}
+
+/* ----- Les trous « [À compléter » ----- */
+{
+  const avec = (bloc, masque) => normaliser({ pages: { accueil: { ordre: ["contact-1"] } }, blocs: { "contact-1": Object.assign({ type: "contact", titre: "Contact", masque }, bloc) } });
+  const r = restesDuModele(avec({ telephone: "[À compléter]" }));
+  verifier("trous : signalés même dans une section sans texte d'exemple (le contact)",
+    r.length === 1 && r[0].id === "contact-1" && r[0].texte === true && r[0].aCompleter === true, JSON.stringify(r));
+  verifier("trous : une section masquée n'est pas signalée", restesDuModele(avec({ telephone: "[À compléter]" }, true)).length === 0);
+  verifier("trous : la casse, l'accent et l'espace insécable n'y changent rien",
+    ["[à compléter]", "[A completer : x]", "[À&nbsp;compléter]", "[ À  compléter ]", "<b>[À compléter</b>]", "[&Agrave; compl&eacute;ter"].every((v) => contientUnTrou(v)) &&
+    ["À compléter", "Liste à compléter", "Compléter", "", null, 42, { toString: 1 }].every((v) => !contientUnTrou(v)));
+  verifier("trous : cherchés dans toute la profondeur d'une section", contientUnTrou({ a: [{ b: ["x", "SIRET : [À compléter]"] }] }));
+  verifier("trous : la démo n'en a aucun, sa page de mentions comprise",
+    !contientUnTrou(contenuLivre) && restesDuModele(normaliser(copieDe(contenuLivre))).length === 0);
+}
+
+/* ----- Le lien des mentions légales en bas de page ----- */
+{
+  const bas = (html) => (html.match(/<div class="conteneur pied__bas">.*?<\/div>/s) || [""])[0];
+  const n = normaliser(copieDe(contenuLivre));
+  const lien = '<a class="pied__mentions" href="/mentions-legales">Mentions légales</a>';
+  verifier("pied : avec la page, « © année Nom · Mentions légales »",
+    bas(rendrePage({ contenu: n, client })) === '<div class="conteneur pied__bas"><p>© ' + new Date().getFullYear() + " Au Pétrin d&#39;Ernestine · " + lien + "</p></div>",
+    bas(rendrePage({ contenu: n, client })));
+  verifier("pied : sur la page elle-même, le lien dit qu'on y est",
+    bas(rendrePage({ contenu: n, client, pageId: PAGE_MENTIONS })).includes('<a class="pied__mentions" href="/mentions-legales" aria-current="page">'));
+  verifier("pied : sans la page, pas de lien", !bas(rendrePage({ contenu: normaliser(sansMentions()), client })).includes("mentions"));
+  const vide = copieDe(contenuLivre);
+  vide.pied.liens = [];
+  verifier("pied : ce n'est pas une entrée de la liste du pied — la vider ne le retire pas",
+    bas(rendrePage({ contenu: normaliser(vide), client })).includes(lien) && !JSON.stringify(contenuLivre.pied).includes("mentions"));
+  const libelle = copieDe(contenuLivre);
+  libelle.libelles.mentionsLegales = "Infos <légales>";
+  verifier("pied : son libellé se change (et s'échappe)", bas(rendrePage({ contenu: normaliser(libelle), client })).includes(">Infos &lt;légales&gt;</a>"));
+  libelle.libelles.mentionsLegales = "   ";
+  verifier("pied : un libellé vidé retombe sur « Mentions légales »", bas(rendrePage({ contenu: normaliser(libelle), client })).includes(lien));
+  verifier("pied : en édition, on clique dessus pour le réécrire",
+    bas(rendrePage({ contenu: n, client, edition: true })).includes('href="/mentions-legales" data-edit="libelles.mentionsLegales">Mentions légales</a>'));
+  verifier("libellés : « Mentions légales » parmi les petits mots", LIBELLES.mentionsLegales === "Mentions légales");
+  const page = await appeler("/mentions-legales");
+  verifier("Worker : /mentions-legales répond 200, avec ses paragraphes et son lien en bas",
+    page.statut === 200 && nbH1(page.corps) === 1 && page.corps.includes("000 000 000 00000") && bas(page.corps).includes("aria-current"));
+  const introuvable = await appeler("/n-existe-pas");
+  verifier("Worker : la page introuvable garde le lien des mentions", introuvable.statut === 404 && bas(introuvable.corps).includes(lien));
+
+  /* Relecture du 3 octobre 2026 : masquer la section des mentions (pour
+     faire taire l'avertissement des « [À compléter ») laissait le lien en
+     bas de chaque page, vers une page qui n'affichait rien. Le lien suit
+     désormais `mentionsPresentes` : la page doit avoir une section
+     visible qui affiche du texte. */
+  const varier = (f) => { const c = copieDe(contenuLivre); f(c); return c; };
+  const notice = (c) => (rendreCorps({ contenu: normaliser(c), client }).match(/<p class="contact__notice">.*?<\/p>/s) || [""])[0];
+  const sansLien = {
+    "section masquée": varier((c) => { c.blocs["texte-1"].masque = true; }),
+    "page sans section": varier((c) => { c.pages[PAGE_MENTIONS].ordre = []; }),
+    "section vidée": varier((c) => { c.blocs["texte-1"] = { type: "texte", surtitre: "", titre: " ", intro: "<br>", paragraphes: [{ titre: "", texte: "" }] }; }),
+    "section d'un genre inconnu": varier((c) => { c.blocs["texte-1"].type = "inconnu"; }),
+    "section absente des blocs": varier((c) => { delete c.blocs["texte-1"]; }),
+    "réglages et adresses seuls": varier((c) => { c.blocs["texte-1"] = { type: "accroche", image: "/medias/0123456789abcdef0123456789abcdef.jpg", imageAlt: "Une photo", fond: "sombre", boutons: [{ texte: "", vers: "/" }] }; })
+  };
+  const fautes = [];
+  for (const [cas, c] of Object.entries(sansLien)) {
+    if (mentionsPresentes(c) || mentionsPresentes(normaliser(c))) fautes.push(cas + " : mentionsPresentes vrai");
+    if (bas(rendrePage({ contenu: normaliser(c), client })).includes("mentions")) fautes.push(cas + " : lien en bas de page");
+    if (bas(rendrePage({ contenu: normaliser(c), client, edition: true })).includes("mentions")) fautes.push(cas + " : lien en bas de page, en édition");
+    if (notice(c).includes("mentions-legales")) fautes.push(cas + " : lien dans la notice du formulaire");
+  }
+  verifier("pied : une page des mentions qui n'affiche rien n'a pas de lien — ni en bas de page, ni sous le formulaire", fautes.length === 0, fautes.join(" ; "));
+  const deux = varier((c) => {
+    c.blocs["texte-2"] = { type: "texte", titre: "", paragraphes: [{ titre: "", texte: "Une ligne." }] };
+    c.pages[PAGE_MENTIONS].ordre.push("texte-2");
+    c.blocs["texte-1"].masque = true;
+  });
+  verifier("pied : une autre section visible suffit, le lien revient",
+    mentionsPresentes(deux) && bas(rendrePage({ contenu: normaliser(deux), client })).includes(lien) && notice(deux).includes('href="/mentions-legales"'));
+  verifier("mentionsPresentes : la démo, et le modèle rangé tel quel",
+    mentionsPresentes(contenuLivre) && mentionsPresentes(normaliser(copieDe(contenuLivre))) && !mentionsPresentes(sansMentions()) &&
+    (() => { const c = sansMentions(); avecMentions(c); return mentionsPresentes(c); })());
+  const t = { toString: 1 };
+  const abimes = [null, undefined, 42, "x", [], t, { pages: t, blocs: t }, { pages: { [PAGE_MENTIONS]: t }, blocs: {} },
+    { pages: { [PAGE_MENTIONS]: { ordre: t } }, blocs: {} }, { pages: { [PAGE_MENTIONS]: { ordre: [t, null, "constructor", "toString"] } }, blocs: {} },
+    { pages: { [PAGE_MENTIONS]: { ordre: ["x"] } }, blocs: { x: { type: t, titre: "a" } } }, { pages: { [PAGE_MENTIONS]: { ordre: ["x"] } }, blocs: { x: { type: "texte", titre: t, masque: "true" } } }];
+  const leve = abimes.filter((c) => { try { return mentionsPresentes(c) !== false; } catch { return true; } });
+  verifier("mentionsPresentes : contenu abîmé — faux, jamais d'exception", leve.length === 0, String(leve.length));
+}
+
+/* ----- Les données structurées pour Google ----- */
+{
+  const n = normaliser(copieDe(contenuLivre));
+  const attendu = {
+    "@context": "https://schema.org", "@type": "Bakery", name: "Au Pétrin d'Ernestine",
+    description: "Boulangerie artisanale : pain au levain naturel, farines d'Alsace, viennoiseries pur beurre et kougelhopf le week-end.",
+    url: ORIGINE + "/", telephone: "01 99 00 12 34", email: "bonjour@example.com", address: "3 place de la Fontaine, Rieddorf",
+    openingHoursSpecification: [
+      ["Tuesday", "06:30", "13:00"], ["Tuesday", "15:30", "19:00"], ["Wednesday", "06:30", "13:00"], ["Wednesday", "15:30", "19:00"],
+      ["Thursday", "06:30", "13:00"], ["Thursday", "15:30", "19:00"], ["Friday", "06:30", "13:00"], ["Friday", "15:30", "19:00"],
+      ["Saturday", "06:00", "18:00"], ["Sunday", "06:30", "12:30"]
+    ].map(([j, o, f]) => ({ "@type": "OpeningHoursSpecification", dayOfWeek: "https://schema.org/" + j, opens: o, closes: f }))
+  };
+  const d = donneesStructurees(n, { client, origine: ORIGINE, pageId: "accueil" });
+  // La démo se déclare boulangerie (`categorieGoogle` de sa fiche) : sans
+  // ce champ, Google l'aurait lue comme une entreprise quelconque.
+  verifier("Google : la démo — boulangerie, nom, description, adresse, téléphone, e-mail, horaires (le lundi fermé n'y est pas)",
+    JSON.stringify(d) === JSON.stringify(attendu), JSON.stringify(d));
+  verifier("Google : seulement sur l'accueil", donneesStructurees(n, { client, origine: ORIGINE, pageId: PAGE_MENTIONS }) === null &&
+    donneesStructurees(n, { client, origine: ORIGINE, pageId: "introuvable" }) === null);
+  const sans = donneesStructurees(n, { client, pageId: "accueil" });
+  verifier("Google : sans origine, ni adresse du site ni photo", sans && !("url" in sans) && !("image" in sans) && sans.name === attendu.name);
+  verifier("Google : la catégorie de la fiche, si elle est dans la liste fermée",
+    donneesStructurees(n, { client: { categorieGoogle: "Bakery" } }) ["@type"] === "Bakery" &&
+    ["Boulangerie", "bakery", "Thing", "constructor", { toString: 1 }, ["Bakery"], ""].every((cat) => donneesStructurees(n, { client: { categorieGoogle: cat } })["@type"] === "LocalBusiness") &&
+    CATEGORIES_GOOGLE.length === 15 && CATEGORIES_GOOGLE.includes("HealthAndBeautyBusiness") && Object.isFrozen(CATEGORIES_GOOGLE));
+
+  const varier = (f) => { const c = copieDe(contenuLivre); f(c); return donneesStructurees(normaliser(c), { client, origine: ORIGINE }) || {}; };
+  const PHOTO = "/medias/0123456789abcdef0123456789abcdef.jpg";
+  verifier("Google : la première photo visible, en adresse absolue, jamais un SVG",
+    varier((c) => { c.blocs["galerie-1"].images[2].src = PHOTO; }).image === ORIGINE + PHOTO &&
+    varier((c) => { c.blocs["galerie-1"].images[2].src = PHOTO; c.blocs["galerie-1"].masque = true; }).image === undefined &&
+    varier((c) => { c.blocs["presentation-1"].image = "https://photos.example/a.webp"; }).image === "https://photos.example/a.webp" &&
+    varier(() => {}).image === undefined);
+  verifier("Google : la même photo que celle des liens partagés",
+    rendrePage({ contenu: normaliser((() => { const c = copieDe(contenuLivre); c.blocs["galerie-1"].images[2].src = PHOTO; return c; })()), client, origine: ORIGINE })
+      .includes('og:image" content="' + ORIGINE + PHOTO + '"'));
+  verifier("Google : le téléphone des horaires d'abord, sinon celui du contact",
+    varier((c) => { c.blocs["horaires-1"].telephone = ""; c.blocs["contact-1"].telephone = "03 89 00 00 00"; }).telephone === "03 89 00 00 00" &&
+    varier((c) => { c.blocs["horaires-1"].masque = true; c.blocs["contact-1"].telephone = "03 89 00 00 00"; }).telephone === "03 89 00 00 00");
+  verifier("Google : une section masquée ne donne ni adresse ni horaires",
+    (() => { const x = varier((c) => { c.blocs["horaires-1"].masque = true; }); return !("address" in x) && !("openingHoursSpecification" in x); })());
+  verifier("Google : l'adresse sur une ligne", varier((c) => { c.blocs["horaires-1"].adresse = "<b>3 place</b><br><br>67000 <i>Rieddorf</i><br>"; }).address === "3 place, 67000 Rieddorf");
+  verifier("Google : un champ vide n'apparaît pas",
+    (() => { const x = varier((c) => { c.site.description = ""; c.blocs["horaires-1"].email = ""; c.blocs["contact-1"].email = " "; c.blocs["horaires-1"].adresse = ""; }); return !("description" in x) && !("email" in x) && !("address" in x); })());
+  verifier("Google : un texte encore « [À compléter » ne part pas",
+    (() => { const x = varier((c) => { c.blocs["horaires-1"].adresse = "[À compléter]"; c.blocs["horaires-1"].telephone = "[À compléter]"; c.blocs["contact-1"].telephone = ""; }); return !("address" in x) && !("telephone" in x); })());
+  verifier("Google : sans nom, rien du tout", varier((c) => { c.site.nom = ""; }).name === undefined);
+  // Une section neuve : horaires et adresse INVENTÉS, jamais envoyés à Google.
+  const neuf = normaliser({ site: { nom: "Neuf" }, pages: { accueil: { ordre: ["horaires-1"] } }, blocs: { "horaires-1": nouveauBloc("horaires") } });
+  const dn = donneesStructurees(neuf, {});
+  verifier("Google : les horaires et l'adresse d'exemple d'une section neuve ne partent pas",
+    dn && !("openingHoursSpecification" in dn) && !("address" in dn), JSON.stringify(dn));
+  neuf.blocs["horaires-1"].jours[0].heures = "8 h – 12 h";
+  verifier("Google : retouchés, ils partent", (donneesStructurees(neuf, {}).openingHoursSpecification || []).length === 6);
+
+  const cas = [
+    ["9 h – 18 h", "09:00-18:00"], ["9h-18h", "09:00-18:00"], ["6 h 30 – 13 h · 15 h 30 – 19 h", "06:30-13:00 15:30-19:00"],
+    ["9:00 - 12:00, 14:00 - 18:00", "09:00-12:00 14:00-18:00"], ["de 9 h à 18 h", "09:00-18:00"], ["9 h — 12 h et 14 h — 18 h", "09:00-12:00 14:00-18:00"],
+    ["  9H30-12H ", "09:30-12:00"], ["18 h – 24 h", "18:00-23:59"], ["22 h – 2 h", "22:00-02:00"],
+    ["Fermé", ""], ["fermée", ""], ["FERMÉ", ""]
+  ];
+  const refus = ["", "Sur rendez-vous", "9 h – midi", "9 h – 18 h, puis 20 h", "25 h – 18 h", "9 h 75 – 18 h", "9 h – 9 h", "9-18", "9 h – 18 h,",
+    "24 h – 6 h", "9 h – 18 h (sauf jours fériés)", "Fermé le matin", null, 42, { toString: 1 }, "9 h – 18 h · ".repeat(20)];
+  const lire = (v) => { const p = plagesHoraires(v); return p === null ? null : p.map((x) => x.opens + "-" + x.closes).join(" "); };
+  const fautes = cas.filter(([v, a]) => lire(v) !== a).map(([v]) => v + " → " + lire(v))
+    .concat(refus.filter((v) => lire(v) !== null).map((v) => JSON.stringify(v) + " → " + lire(v)));
+  verifier("Google : les horaires qu'on sait lire, et ceux qu'on refuse en entier", fautes.length === 0, fautes.join(" ; "));
+  const jours = (lignes) => (varier((c) => { c.blocs["horaires-1"].jours = lignes; }).openingHoursSpecification || []).map((s) => s.dayOfWeek.slice(19) + " " + s.opens);
+  verifier("Google : jours sans casse ni accent ; une ligne vide ou abîmée ne compte pas",
+    jours([{ jour: "LUNDI", heures: "9 h – 12 h" }, { jour: "Mércredi :", heures: "9 h – 12 h" }, { jour: "Samedi", heures: "Fermé" },
+      null, { jour: { toString: 1 } }, { jour: "", heures: "" }, { jour: " ", heures: " " }]).join() === "Monday 09:00,Wednesday 09:00");
+  /* TOUT OU RIEN (relecture du 3 octobre 2026). Une ligne illisible était
+     sautée et les autres partaient : un jour absent se lit « fermé » chez
+     Google, et la boulangerie ouverte du mardi au vendredi y paraissait
+     fermée ces quatre jours. Une seule ligne illisible, et aucun horaire
+     ne part. */
+  const illisibles = {
+    "une plage de jours": [{ jour: "Lundi", heures: "Fermé" }, { jour: "Du mardi au vendredi", heures: "6 h 30 – 13 h · 15 h 30 – 19 h" },
+      { jour: "Samedi", heures: "6 h – 18 h" }, { jour: "Dimanche", heures: "6 h 30 – 12 h 30" }],
+    "des heures illisibles un jour": [{ jour: "Lundi", heures: "9 h – 19 h" }, { jour: "Mardi", heures: "9 h – 19 h" }, { jour: "Mercredi", heures: "9 h – 19 h" },
+      { jour: "Jeudi", heures: "9 h – 19 h" }, { jour: "Vendredi", heures: "9 h – 19 h 30 (nocturne)" }, { jour: "Samedi", heures: "9h-12h | 14h-18h" }, { jour: "Dimanche", heures: "Fermé" }],
+    "des jours abrégés": [{ jour: "Mar.", heures: "8 h – 12 h" }, { jour: "Mer.", heures: "8 h – 12 h" }, { jour: "Sam", heures: "8 h – 12 h" }, { jour: "Dimanche", heures: "8 h – 12 h" }],
+    "un jour sans heures": [{ jour: "Lundi", heures: "9 h – 12 h" }, { jour: "Mardi", heures: "" }],
+    "des heures sans jour lisible": [{ jour: "Lundi", heures: "9 h – 12 h" }, { jour: "Mardi et jeudi", heures: "9 h – 12 h" }],
+    // La ligne « de suite » de l'après-midi, sans jour : la sauter envoyait
+    // « mardi 9 h – 12 h » seul — le mardi après-midi fermé chez Google
+    // (contrôle du 3 octobre 2026).
+    "des heures sans jour du tout (ligne de suite)": [{ jour: "Mardi", heures: "9 h – 12 h" }, { jour: "", heures: "14 h – 18 h" }, { jour: "Samedi", heures: "9 h – 12 h" }]
+  };
+  const partis = Object.entries(illisibles).filter(([, l]) => "openingHoursSpecification" in varier((c) => { c.blocs["horaires-1"].jours = l; })).map(([cas]) => cas);
+  verifier("Google : une seule ligne illisible, et AUCUN horaire ne part (un jour absent se lit « fermé »)", partis.length === 0, partis.join(" ; "));
+  verifier("Google : la démo garde ses dix plages", (d.openingHoursSpecification || []).length === 10);
+  // Le contrôle qualité nomme la ligne fautive : sans elle, l'éditrice ne
+  // saurait pas pourquoi Google ne reçoit rien.
+  const noms = (l) => lignesHorairesIllisibles(l).map((x) => x.index + ":" + x.jour + "|" + x.heures).join(" ; ");
+  verifier("Google : les lignes illisibles, nommées telles qu'elles s'affichent",
+    noms(illisibles["une plage de jours"]) === "1:Du mardi au vendredi|6 h 30 – 13 h · 15 h 30 – 19 h" &&
+    noms(illisibles["des heures illisibles un jour"]) === "4:Vendredi|9 h – 19 h 30 (nocturne) ; 5:Samedi|9h-12h | 14h-18h" &&
+    noms(illisibles["des jours abrégés"]) === "0:Mar.|8 h – 12 h ; 1:Mer.|8 h – 12 h ; 2:Sam|8 h – 12 h" &&
+    noms(illisibles["des heures sans jour du tout (ligne de suite)"]) === "1:|14 h – 18 h" &&
+    noms(contenuLivre.blocs["horaires-1"].jours) === "" &&
+    [null, undefined, 42, "x", { toString: 1 }, [null, { jour: { toString: 1 } }, { jour: "Lundi", heures: { toString: 1 } }]].every((v) => Array.isArray(lignesHorairesIllisibles(v))) &&
+    noms([null, { jour: "Lundi", heures: { toString: 1 } }]) === "1:Lundi|",
+    noms(illisibles["des heures illisibles un jour"]));
+
+  const t = { toString: 1 };
+  const abimes = [null, undefined, 42, "x", [], t, { site: t, pages: t, blocs: t }, { site: { nom: "A" }, pages: { accueil: { ordre: t } } },
+    { site: { nom: "A" }, pages: { accueil: { ordre: ["h", "h", t, null, "constructor"] } }, blocs: { h: { type: "horaires", jours: t, adresse: t, telephone: t, masque: t } } },
+    { site: { nom: "A", description: t }, pages: { accueil: { ordre: ["h"] } }, blocs: { h: { type: "horaires", jours: [t, null, { jour: "Lundi", heures: t }] } } }];
+  const leve = abimes.filter((c) => { try { donneesStructurees(c, { client: t, origine: t, pageId: "accueil" }); return false; } catch { return true; } });
+  verifier("Google : contenu abîmé — jamais d'exception", leve.length === 0, String(leve.length));
+
+  // L'échappement : rien ne sort de la balise, et le JSON se relit à l'identique.
+  const nom = 'Pain </script><script>alert(1)</script> & « Co » <!-- x';
+  const c = copieDe(contenuLivre);
+  c.site.nom = nom;
+  const html = rendrePage({ contenu: normaliser(c), client, origine: ORIGINE });
+  const balises = [...html.matchAll(JSON_LD)];
+  verifier("Google : un nom piégé ne sort pas de la balise (« < », « > », « & », U+2028 et U+2029 échappés)",
+    balises.length === 1 && !/[<>&\u2028\u2029]/.test(balises[0][1]) && JSON.parse(balises[0][1]).name === texteBrut(nom) && /[<&]/.test(texteBrut(nom)) &&
+    !/<script/i.test(sansDonneesStructurees(html)), balises.length ? balises[0][1].slice(0, 120) : "aucune balise");
+  verifier("Google : jsonLdSur et la balise", jsonLdSur({ a: "<&>" }) === '{"a":"\\u003c\\u0026\\u003e"}' &&
+    jsonLdSur({ a: "\u2028\u2029" }) === '{"a":"\\u2028\\u2029"}' && JSON.parse(jsonLdSur({ a: "<\u2028>" })).a === "<\u2028>" &&
+    baliseDonneesStructurees({ a: 1 }) === '<script type="application/ld+json">{"a":1}</script>' && baliseDonneesStructurees(null) === "");
+  verifier("Google : rien hors de l'accueil, rien en édition",
+    donneesDe(rendrePage({ contenu: n, client, origine: ORIGINE, pageId: PAGE_MENTIONS })).length === 0 &&
+    donneesDe(rendrePage({ contenu: n, client, origine: ORIGINE, edition: true })).length === 0 &&
+    donneesDe(rendrePage({ contenu: n, client, origine: ORIGINE })).length === 1);
+  const accueil = await appeler("/");
+  verifier("Google : la politique de contenu n'a pas bougé (aucun script en ligne permis)",
+    /(^|;\s*)script-src 'self'(;|$)/.test(accueil.entetes.get("content-security-policy") || ""), accueil.entetes.get("content-security-policy"));
+}
+
+/* ----- Le formulaire : une seule règle (formulaire.js) ----- */
+{
+  verifier("formulaire : les quatre champs, dans l'ordre", CHAMPS_CONTACT.join() === "nom,email,telephone,message" && Object.isFrozen(CHAMPS_CONTACT) && CHAMP_PIEGE === "site_web");
+  verifier("formulaire : les messages d'erreur de la spécification, figés dans le code",
+    JSON.stringify(ERREURS_CONTACT) === JSON.stringify({
+      nom: "Indiquez votre nom.",
+      email: "Indiquez une adresse e-mail complète, par exemple nom@exemple.fr.",
+      telephone: "Ce numéro de téléphone ne semble pas valide.",
+      message: "Écrivez votre message (10 caractères au moins).",
+      limite: "Trop de messages sont partis d'ici récemment. Réessayez plus tard, ou appelez-nous.",
+      indisponible: "Votre message n'a pas pu partir. Réessayez dans quelques minutes, ou appelez-nous."
+    }) && Object.isFrozen(ERREURS_CONTACT));
+  verifier("formulaire : les bornes de la spécification",
+    REGLES_CONTACT.nom.max === 100 && REGLES_CONTACT.email.max === 254 && REGLES_CONTACT.telephone.max === 30 && !REGLES_CONTACT.telephone.requis &&
+    REGLES_CONTACT.message.min === 10 && REGLES_CONTACT.message.max === 4000);
+  const bon = { nom: "  Jeanne   Martin ", email: " jeanne@exemple.fr ", telephone: " 03 89 12 34 56 ", message: "\r\n Bonjour,\r\nUne couronne pour dimanche ?  \r\n" };
+  const v = validerMessage(bon);
+  verifier("formulaire : un message correct, nettoyé",
+    v.ok === true && Object.keys(v.erreurs).length === 0 && v.valeurs.nom === "Jeanne Martin" && v.valeurs.email === "jeanne@exemple.fr" &&
+    v.valeurs.telephone === "03 89 12 34 56" && v.valeurs.message === "Bonjour,\nUne couronne pour dimanche ?" && Object.keys(v.valeurs).join() === "nom,email,telephone,message",
+    JSON.stringify(v));
+  const erreur = (champ, valeur) => validerMessage(Object.assign({}, bon, { [champ]: valeur })).erreurs[champ];
+  const fautes = [];
+  for (const [champ, valeur, attendu] of [
+    ["nom", "", true], ["nom", "   ", true], ["nom", "x".repeat(100), false], ["nom", "x".repeat(101), true], ["nom", "Zoé", false],
+    ["email", "", true], ["email", "jeanne", true], ["email", "jeanne@", true], ["email", "@exemple.fr", true], ["email", "jean ne@exemple.fr", true],
+    ["email", "jeanne@exemple", true], ["email", "jeanne@exemple.fr\r\nBcc: x@y.fr", true], ["email", "a".repeat(245) + "@exemple.fr", true],
+    ["email", "Jeanne.Martin+pain@sous.domaine.fr", false], ["email", "a".repeat(64) + "@" + "b".repeat(63) + ".fr", false],
+    ["telephone", "", false], ["telephone", "+33 (0)3 89 12 34 56", false], ["telephone", "06.12.34.56.78", false], ["telephone", "abc", true],
+    ["telephone", "+", true], ["telephone", "12 34", true], ["telephone", "0".repeat(31), true], ["telephone", "03 89 12 34 56 poste 2", true],
+    ["message", "123456789", true], ["message", "1234567890", false], ["message", "  123456789  ", true], ["message", "x".repeat(4000), false],
+    ["message", "x".repeat(4001), true], ["message", "1234\r\n6789", true], ["message", "x".repeat(3999) + "\r\n", false]
+  ]) {
+    const e = erreur(champ, valeur);
+    if (!!e !== attendu || (e && e !== ERREURS_CONTACT[champ])) fautes.push(champ + " " + JSON.stringify(valeur).slice(0, 30) + " → " + (e || "accepté"));
+  }
+  verifier("formulaire : chaque borne, accepté ou refusé avec son message", fautes.length === 0, fautes.join(" ; "));
+  const ctl = validerMessage(Object.assign({}, bon, { nom: "Jeanne\u0000\nMartin\u2028", message: "Ligne 1\u0007\nLigne\t2\u2028Ligne 3" }));
+  verifier("formulaire : les caractères de contrôle disparaissent, un nom tient sur une ligne, le message garde ses lignes",
+    ctl.valeurs.nom === "Jeanne Martin" && ctl.valeurs.message === "Ligne 1\nLigne 2\nLigne 3", JSON.stringify(ctl.valeurs));
+  const t = { toString: 1 };
+  const abimes = [null, undefined, 42, "x", [], t, { nom: t, email: [1], telephone: {}, message: 12345678901 }, JSON.parse('{"__proto__":{"nom":"Volé","email":"a@b.fr","message":"0123456789"}}'),
+    { get: () => { throw new Error("x"); } }];
+  const leve = abimes.filter((x) => { try { const r = validerMessage(x); return !r || r.ok || typeof r.valeurs.nom !== "string"; } catch { return true; } });
+  verifier("formulaire : n'importe quoi reçu → des erreurs, jamais une exception, jamais rien lu du prototype", leve.length === 0, String(leve.length));
+  const params = new URLSearchParams("nom=Jeanne&email=jeanne%40exemple.fr&message=Bonjour%20%C3%A0%20vous%20!&site_web=&page=accueil&bloc=contact-1&autre=x");
+  const p = validerMessage(params);
+  verifier("formulaire : lit aussi un formulaire reçu tel quel (URLSearchParams), et seulement ses quatre champs",
+    p.ok && p.valeurs.nom === "Jeanne" && p.valeurs.message === "Bonjour à vous !" && p.valeurs.telephone === "" && Object.keys(p.valeurs).length === 4);
+}
+
+/* ----- Le formulaire dans la section contact ----- */
+{
+  const reglage = BLOCS.contact.reglages.find((r) => r.cle === "formulaire");
+  verifier("contact : la case « Afficher un formulaire de contact », décochée à la naissance",
+    !!reglage && reglage.type === "case" && reglage.libelle === "Afficher un formulaire de contact" && nouveauBloc("contact").formulaire === false);
+  const avec = (formulaire, f) => { const c = copieDe(contenuLivre); c.blocs["contact-1"].formulaire = formulaire; if (f) f(c); return normaliser(c); };
+  const section = (html, id = "contact-1") => {
+    const debut = html.indexOf('data-bloc="' + id + '"');
+    return debut < 0 ? "" : html.slice(html.lastIndexOf("<section", debut), html.indexOf("</section>", debut) + 10);
+  };
+  const corps = (contenu, opts = {}) => section(rendreCorps(Object.assign({ contenu, client }, opts)));
+  verifier("contact : sans un vrai true, pas de formulaire (la section d'avant, à l'identique)",
+    [false, "true", 1, undefined].every((f) => !corps(avec(f)).includes("<form")) && corps(avec(true)).includes("<form") &&
+    corps(avec(false)).includes('<div class="conteneur contact__grille"><div class="contact__texte">'));
+  const s = corps(avec(true));
+  verifier("contact : un vrai formulaire, envoyé à /contact, qui revient à la section",
+    s.includes('<form class="contact__formulaire" method="post" action="/contact#contact">') &&
+    s.includes('<input type="hidden" name="page" value="accueil">') && s.includes('<input type="hidden" name="bloc" value="contact-1">'));
+  const champs = [...s.matchAll(/<(input|textarea) class="contact__saisie"([^>]*)>/g)].map((m) => m[1] + m[2]);
+  const attendus = {
+    nom: ['type="text"', "required", 'maxlength="100"', 'autocomplete="name"'],
+    email: ['type="email"', "required", 'maxlength="254"', 'autocomplete="email"'],
+    telephone: ['type="tel"', 'maxlength="30"', 'autocomplete="tel"'],
+    message: ["textarea", "required", 'minlength="10"', 'maxlength="4000"']
+  };
+  verifier("contact : quatre champs, chacun avec son libellé, ses bornes et son type",
+    champs.length === 4 && CHAMPS_CONTACT.every((n, i) => champs[i].includes('name="' + n + '"') && attendus[n].every((a) => champs[i].includes(a)) &&
+      s.includes('<label class="contact__libelle" for="formulaire-contact-1-' + n + '"><span>' + LIBELLES[PRESENTATION_LIB[n]] + "</span></label>") &&
+      champs[i].includes('id="formulaire-contact-1-' + n + '"')) &&
+    !/telephone"[^>]*required/.test(s) && !s.includes("aria-invalid") && !s.includes("disabled"), champs.join(" | "));
+  /* Le navigateur arrête ce que le serveur refuserait (relecture du
+     3 octobre 2026) : « 06/12/34/56/78 » ou « jeanne@exemple » partaient
+     et revenaient refusés. Chaque `pattern` écrit dans la page doit
+     compiler avec le drapeau `v` des navigateurs récents (sinon il est
+     ignoré sans un mot) ET avec `u`, et accepter exactement ce
+     qu'accepte `validerMessage`. Le contrôle propre à `type="email"`
+     (WHATWG) s'ajoute à celui de l'e-mail : c'est ce que fait le
+     navigateur. */
+  const motifs = Object.fromEntries([...s.matchAll(/<input class="contact__saisie"[^>]*name="([a-z]+)"[^>]*pattern="([^"]+)"/g)].map((m) => [m[1], m[2].replace(/&amp;/g, "&")]));
+  const compiles = {};
+  const invalides = [];
+  for (const [nm, motif] of Object.entries(motifs)) {
+    for (const f of ["v", "u"]) {
+      try { const r = new RegExp("^(?:" + motif + ")$", f); if (f === "v") compiles[nm] = r; } catch (e) { invalides.push(nm + " (" + f + ") : " + e.message); }
+    }
+  }
+  verifier("contact : un motif sur le nom, l'e-mail et le téléphone (aucun sur le message), valide en mode v comme en mode u",
+    Object.keys(motifs).join() === "nom,email,telephone" && invalides.length === 0 &&
+    motifs.nom === MOTIF_NOM && motifs.email === MOTIF_EMAIL && motifs.telephone === MOTIF_TELEPHONE && !/<textarea[^>]*pattern/.test(s),
+    invalides.join(" ; ") || JSON.stringify(motifs));
+  const WHATWG = /^[a-zA-Z0-9.!#$%&'*+\/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
+  const navigateur = {
+    // Un champ vide n'est jamais confronté à son motif : `required` décide.
+    nom: (v) => v !== "" && v.length <= 100 && (!compiles.nom || compiles.nom.test(v)),
+    email: (v) => { const x = v.trim(); return x !== "" && x.length <= 254 && WHATWG.test(x) && (!compiles.email || compiles.email.test(x)); },
+    telephone: (v) => v === "" || (v.length <= 30 && (!compiles.telephone || compiles.telephone.test(v)))
+  };
+  const saisies = {
+    nom: ["Jeanne", "Zoé Martin", "   ", " ", "\u0007", "x".repeat(100), " Jeanne "],
+    email: ["jeanne@exemple.fr", "jeanne@exemple", "jeanne@", "@exemple.fr", "Jeanne.Martin+pain@sous.domaine.fr", "jean ne@exemple.fr",
+      "jeanne@-exemple.fr", "jeanne@exemple..fr", "jeanne@exemple.fr.", "a@b.c", "a@b@c.fr", "jeanne@ex_emple.fr"],
+    telephone: ["", "03 89 12 34 56", "+33 (0)3 89 12 34 56", "06.12.34.56.78", "06-12-34-56-78", "06/12/34/56/78", "06 12 34 56 78 (après 18 h)",
+      "abc", "+", "12 34", "123456", "12345", "((((((1))))))", "0".repeat(30), "03 89 12 34 56 poste 2", "+ 3 3 3 8 9 1"]
+  };
+  const ecarts = [];
+  for (const [nm, liste] of Object.entries(saisies)) {
+    for (const v of liste) {
+      const serveur = !validerMessage(Object.assign({ nom: "Jeanne", email: "jeanne@exemple.fr", telephone: "", message: "Bonjour, une question." }, { [nm]: v })).erreurs[nm];
+      if (navigateur[nm](v) !== serveur) ecarts.push(nm + " " + JSON.stringify(v) + " : navigateur " + (navigateur[nm](v) ? "accepte" : "refuse") + ", serveur " + (serveur ? "accepte" : "refuse"));
+    }
+  }
+  verifier("contact : le navigateur accepte exactement ce qu'accepte le serveur (nom, e-mail, téléphone)", ecarts.length === 0, ecarts.join(" ; "));
+  verifier("formulaire : le motif du téléphone est la règle même du serveur",
+    validerMessage({ nom: "J", email: "j@e.fr", message: "0123456789", telephone: "06/12/34/56/78" }).erreurs.telephone === ERREURS_CONTACT.telephone &&
+    !validerMessage({ nom: "J", email: "j@e.fr", message: "0123456789", telephone: "+33 (0)6 12.34-56 78" }).erreurs.telephone);
+  verifier("contact : le piège à robots, caché, hors du clavier, sans remplissage automatique",
+    /<div class="contact__piege" aria-hidden="true"><label for="formulaire-contact-1-site-web">[^<]+<\/label><input type="text" id="formulaire-contact-1-site-web" name="site_web" value="" tabindex="-1" autocomplete="off"><\/div>/.test(s) &&
+    /\.contact__piege\s*\{[^}]*left:\s*-10000px/.test(readFileSync(racine + "socle/public/css/blocs/contact.css", "utf8")));
+  verifier("contact : le bouton, puis la notice avec le lien des mentions légales",
+    s.includes('<button class="bouton bouton--plein contact__bouton" type="submit">Envoyer</button>') &&
+    s.includes('<p class="contact__notice"><span>' + LIBELLES.contactNotice + '</span> <a href="/mentions-legales">Mentions légales</a></p>'));
+  verifier("contact : sans la page des mentions, la notice seule",
+    corps(avec(true, (c) => { delete c.pages[PAGE_MENTIONS]; delete c.blocs["texte-1"]; })).includes('<p class="contact__notice"><span>' + LIBELLES.contactNotice + "</span></p>"));
+  verifier("contact : les libellés se changent", corps(avec(true, (c) => { c.libelles.contactNom = "Votre prénom"; c.libelles.contactEnvoyer = "C'est parti"; }))
+    .includes("<span>Votre prénom</span>") && corps(avec(true, (c) => { c.libelles.contactEnvoyer = "C'est parti"; })).includes(">C&#39;est parti</button>"));
+  verifier("contact : les libellés de la spécification",
+    LIBELLES.contactNom === "Votre nom" && LIBELLES.contactEmail === "Votre adresse e-mail" && LIBELLES.contactTelephone === "Votre téléphone (facultatif)" &&
+    LIBELLES.contactMessage === "Votre message" && LIBELLES.contactEnvoyer === "Envoyer" &&
+    LIBELLES.contactMerci === "Merci, votre message est bien parti. Nous vous répondons au plus vite." &&
+    LIBELLES.contactNotice === "Vos coordonnées servent uniquement à répondre à votre message.");
+  // La notice ne promet que ce que le site tient : « gardées un an au
+  // plus », écrit sous le bouton, ne l'était pas sur un site calme
+  // (relecture du 3 octobre 2026). La durée vit dans les mentions légales.
+  verifier("contact : la notice ne promet aucune durée de garde", !/un an|gard/i.test(LIBELLES.contactNotice));
+  verifier("contact : en dehors de l'accueil, la page d'où l'on écrit",
+    rendreCorps({ contenu: avec(true, (c) => { c.pages.tarifs = { titre: "Tarifs", ordre: ["contact-1"] }; }), client, pageId: "tarifs" }).includes('<input type="hidden" name="page" value="tarifs">'));
+
+  // Un envoi refusé : ce qui avait été écrit revient, chaque erreur à sa place.
+  const saisi = { nom: "Jeanne", email: "jeanne@", telephone: "", message: '<i>"</i>' };
+  const bon = () => ({ nom: "Jeanne", email: "jeanne@exemple.fr", telephone: "", message: "Bonjour, une question." });
+  const refus = validerMessage(saisi);
+  const n = avec(true);
+  const err = section(rendrePage({ contenu: n, client, formulaire: { bloc: "contact-1", etat: "erreur", valeurs: refus.valeurs, erreurs: refus.erreurs } }));
+  verifier("contact, erreur : les valeurs saisies reviennent, échappées",
+    /name="nom" required maxlength="100" pattern="[^"]+" autocomplete="name" value="Jeanne">/.test(err) && err.includes('value="jeanne@"') &&
+    err.includes(">\n&lt;i&gt;&quot;&lt;/i&gt;</textarea>") && !/<i>/.test(err), err.slice(0, 300));
+  verifier("contact, erreur : seuls les champs fautifs sont marqués, et leur message y est relié",
+    /id="formulaire-contact-1-email"[^>]* aria-invalid="true" aria-describedby="formulaire-contact-1-email-erreur"/.test(err) &&
+    err.includes('<p class="contact__erreur" id="formulaire-contact-1-email-erreur">' + echapper(ERREURS_CONTACT.email) + "</p>") &&
+    /id="formulaire-contact-1-message"[^>]* aria-invalid="true"/.test(err) && !/id="formulaire-contact-1-nom"[^>]*aria-invalid/.test(err) &&
+    (err.match(/aria-invalid/g) || []).length === 2);
+  const ids = [...err.matchAll(/ id="([^"]+)"/g)].map((m) => m[1]);
+  verifier("contact, erreur : chaque aria-describedby vise un élément qui existe, les identifiants sont uniques",
+    [...err.matchAll(/aria-describedby="([^"]+)"/g)].every((m) => ids.includes(m[1])) && ids.length === new Set(ids).size);
+  verifier("contact, erreur : un résumé en tête (role=alert), qui mène à chaque champ",
+    /<form [^>]*><div class="contact__alerte" role="alert"><p>Votre message n&#39;est pas encore parti :<\/p><ul role="list"><li><a href="#formulaire-contact-1-email">/.test(err) &&
+    err.includes('<a href="#formulaire-contact-1-message">' + echapper(ERREURS_CONTACT.message) + "</a>"));
+  const general = (erreurs) => section(rendrePage({ contenu: n, client, formulaire: { bloc: "contact-1", etat: "erreur", valeurs: bon(), erreurs } }));
+  verifier("contact, erreur : trop d'envois ou service en panne, dit en tête, sans marquer de champ",
+    general({ limite: ERREURS_CONTACT.limite }).includes('<div class="contact__alerte" role="alert"><p>' + echapper(ERREURS_CONTACT.limite) + "</p></div>") &&
+    general({ indisponible: "texte ignoré : celui du code fait foi" }).includes("<p>" + echapper(ERREURS_CONTACT.indisponible) + "</p>") &&
+    !general({ limite: ERREURS_CONTACT.limite }).includes("aria-invalid") && general({ limite: 1 }).includes('value="Jeanne"'));
+  verifier("contact, erreur : sans message, il dit quand même que rien n'est parti ; un message inconnu est échappé",
+    general({}).includes(echapper(ERREURS_CONTACT.indisponible)) && general(null).includes(echapper(ERREURS_CONTACT.indisponible)) &&
+    general({ autre: "<b>x</b>" }).includes("<p>&lt;b&gt;x&lt;/b&gt;</p>"));
+  // Envoyé : le remerciement à la place du formulaire.
+  const envoye = section(rendrePage({ contenu: n, client, formulaire: { bloc: "contact-1", etat: "envoye" } }));
+  verifier("contact, envoyé : le remerciement (role=status) à la place du formulaire",
+    envoye.includes('<p class="contact__merci" role="status">' + LIBELLES.contactMerci + "</p>") && !envoye.includes("<form"));
+  verifier("contact : seule la section visée par l'envoi s'en sert",
+    !section(rendrePage({ contenu: n, client, formulaire: { bloc: "contact-2", etat: "envoye" } })).includes("contact__merci") &&
+    !section(rendrePage({ contenu: n, client, formulaire: { bloc: "contact-2", etat: "erreur", valeurs: saisi, erreurs: refus.erreurs } })).includes("Jeanne"));
+  const deux = avec(true, (c) => { c.blocs["contact-2"] = Object.assign(nouveauBloc("contact"), { formulaire: true }); c.pages.accueil.ordre.push("contact-2"); });
+  const page2 = rendreCorps({ contenu: deux, client });
+  const tous = [...page2.matchAll(/ id="([^"]+)"/g)].map((m) => m[1]);
+  verifier("contact : deux formulaires sur une page, aucun identifiant en double", tous.length === new Set(tous).size && page2.includes('for="formulaire-contact-2-nom"'));
+
+  // En édition : inerte, mais chaque mot reste cliquable.
+  const edi = section(rendreCorps({ contenu: n, client, edition: true, formulaire: { bloc: "contact-1", etat: "envoye" } }));
+  verifier("contact, édition : les champs désactivés, le bouton ne soumet rien",
+    (edi.match(/<(input|textarea) class="contact__saisie"[^>]* disabled/g) || []).length === 4 && /name="site_web"[^>]* disabled/.test(edi) &&
+    edi.includes('<button class="bouton bouton--plein contact__bouton" type="button"><span data-edit="libelles.contactEnvoyer">Envoyer</span></button>') &&
+    !edi.includes('type="submit"'));
+  verifier("contact, édition : les libellés gardent leurs marques",
+    CHAMPS_CONTACT.every((nm) => edi.includes('<span data-edit="libelles.' + PRESENTATION_LIB[nm] + '">')) && edi.includes('data-edit="libelles.contactNotice"') &&
+    edi.includes('href="/mentions-legales" data-edit="libelles.mentionsLegales"'));
+  verifier("contact, édition : le remerciement s'affiche dessous pour qu'on puisse le réécrire ; l'état d'un envoi est ignoré",
+    edi.includes('<p class="contact__merci"><span data-edit="libelles.contactMerci">') && edi.includes("<form") && !edi.includes('role="status"'));
+  verifier("contact : sur le site, ni ce remerciement d'avance ni aucune marque d'édition",
+    !s.includes("Après l") && !s.includes("contact__merci") && !/data-edit/.test(s));
+}
+
+/* ----- Les feuilles : contrastes mesurés, champs à la taille du doigt ----- */
+{
+  const lum = (hex) => {
+    const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+  const contraste = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
+  // Les couples que posent le formulaire et le lien du bas de page (voir
+  // l'en-tête du formulaire dans contact.css) : tous doivent être DÉCLARÉS
+  // dans COUPLES, donc contrôlés par verifier-themes à chaque changement de
+  // palette, et tenir 4,5:1. Le bord des champs (non textuel) : 3:1.
+  const TEXTES = [["texte", "surface"], ["texte", "fond"], ["texteDoux", "surface"], ["accent", "surface"], ["texte", "doux"], ["accent", "doux"],
+    ["surAccent", "accent"], ["surSombre", "sombre"]];
+  const BORDS = [["texteDoux", "surface"], ["texteDoux", "fond"], ["accent", "fond"]];
+  const declares = new Set(COUPLES.map((c) => c.join("/")));
+  const faibles = [];
+  for (const [id, t] of Object.entries(THEMES)) {
+    for (const [a, b] of TEXTES) {
+      if (!declares.has(a + "/" + b)) faibles.push(a + "/" + b + " non déclaré");
+      const r = contraste(t.couleurs[a], t.couleurs[b]);
+      if (r < 4.5) faibles.push(id + " " + a + "/" + b + " " + r.toFixed(2));
+    }
+    for (const [a, b] of BORDS) {
+      const r = contraste(t.couleurs[a], t.couleurs[b]);
+      if (r < 3) faibles.push(id + " bord " + a + "/" + b + " " + r.toFixed(2));
+    }
+  }
+  verifier("feuilles : chaque couple du formulaire et du lien des mentions est déclaré et tient 4,5:1 (les bords 3:1), dans chaque thème", faibles.length === 0, faibles.join(", "));
+  const css = readFileSync(racine + "socle/public/css/blocs/contact.css", "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+  verifier("feuilles : aucune couleur écrite en dur dans contact.css", !/#[0-9a-f]{3,8}\b|rgba?\(|hsla?\(|\b(white|black|red)\b/i.test(css));
+  const saisie = (css.match(/\.contact__saisie\s*\{([^}]*)\}/) || ["", ""])[1];
+  verifier("feuilles : des champs d'au moins 44 px de haut, en 16 px, bordés d'une couleur mesurée",
+    Number((saisie.match(/min-height:\s*(\d+)px/) || [])[1]) >= 44 && /font-size:\s*1rem/.test(saisie) && /border:\s*1px solid var\(--texte-doux\)/.test(saisie), saisie);
+  verifier("feuilles : le focus des champs se voit", /\.contact__saisie:focus[^{]*\{[^}]*outline:\s*3px solid var\(--accent\)/.test(css));
+  verifier("feuilles : le formulaire vit dans une carte (couleurs claires, même dans une section foncée)",
+    rendreCorps({ contenu: normaliser(Object.assign(copieDe(contenuLivre), {})), client }).includes('<div class="carte contact__envoi"><form'));
+}
+
+/* ----- La démo ----- */
+{
+  const m = contenuLivre.pages[PAGE_MENTIONS];
+  const texte = JSON.stringify(contenuLivre.blocs["texte-1"] || {});
+  verifier("démo : une page de mentions légales, visiblement fictive, sans aucun trou",
+    !!m && m.ordre.join() === "texte-1" && contenuLivre.blocs["texte-1"].type === "texte" &&
+    texte.includes("SIRET : 000 000 000 00000 — entreprise fictive, site de démonstration") && !contientUnTrou(contenuLivre.blocs["texte-1"]));
+  // Les mêmes rubriques que le modèle, dans le même ordre, remplies de
+  // données visiblement fictives (relecture du 3 octobre 2026).
+  const modele = pageMentionsLegales(sansMentions()).blocs["texte-1"].paragraphes.map((x) => x.titre);
+  const demo = (contenuLivre.blocs["texte-1"].paragraphes || []).map((x) => x.titre);
+  const brut = texteBrut(texte);
+  verifier("démo : les rubriques du modèle, dans son ordre", JSON.stringify(demo) === JSON.stringify(modele), demo.join(" | "));
+  verifier("démo : médiateur, RNE, TVA, identité de l'entrepreneur et article 13 du RGPD — fictifs, et dits tels",
+    /médiateur fictif/.test(brut) && /Registre national des entreprises \(RNE\)/.test(brut) && /article 293 B du CGI/.test(brut) &&
+    /Entreprise individuelle \(EI\) fictive — Ernestine Exemple/.test(brut) && !/r[ée]pertoire des m[ée]tiers/i.test(brut) &&
+    ["Base légale", "sous-traitant", "hors de l'Union européenne", "vous opposer", "limitation", "portabilité", "Google Fonts"].every((m) => brut.includes(m)));
+  verifier("démo : le formulaire de contact activé", contenuLivre.blocs["contact-1"].formulaire === true);
+  let sortie = "";
+  let code = 0;
+  // Sans `ATELIER_RACINE` : c'est la VRAIE démo qu'on contrôle ici.
+  const env = Object.assign({}, process.env);
+  delete env.ATELIER_RACINE;
+  try { sortie = execFileSync(process.execPath, [racine + "outils/rendre.mjs", "demo-boulangerie", "--controle"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], env }); }
+  catch (e) { code = e.status; sortie = String(e.stderr || e.stdout); }
+  verifier("rendre.mjs --controle : la démo passe, données structurées comprises", code === 0 && /hors données structurées/.test(sortie) && /sur 2 pages/.test(sortie), sortie.trim());
+
+  // Un client dont la page des mentions n'affiche rien (sa section est
+  // masquée) : le contrôle le refuse, au lieu de passer comme avant.
+  const copie = mkdtempSync(join(tmpdir(), "atelier-rendre-"));
+  try {
+    mkdirSync(join(copie, "clients", "masque"), { recursive: true });
+    const c = copieDe(contenuLivre);
+    c.blocs["texte-1"].masque = true;
+    writeFileSync(join(copie, "clients", "masque", "client.json"), JSON.stringify(client));
+    writeFileSync(join(copie, "clients", "masque", "contenu.json"), JSON.stringify(c));
+    let sortieM = "";
+    let codeM = 0;
+    try { sortieM = execFileSync(process.execPath, [racine + "outils/rendre.mjs", "masque", "--controle"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], env: Object.assign({}, process.env, { ATELIER_RACINE: copie }) }); }
+    catch (e) { codeM = e.status; sortieM = String(e.stderr || e.stdout); }
+    verifier("rendre.mjs --controle : une page des mentions qui n'affiche rien est refusée", codeM === 1 && /mentions légales n'affiche rien/.test(sortieM), sortieM.trim());
+  } finally {
+    rmSync(copie, { recursive: true, force: true });
+  }
 }
 
 /* ----- Bilan ----- */

@@ -223,14 +223,36 @@ textarea.ed-champ { resize: vertical; }
 }
 .ed-panneau__tete { display: none; align-items: center; justify-content: space-between; padding: 8px 8px 0 16px; }
 .ed-panneau__marque { margin: 0; font-weight: 700; }
-.ed-onglets { display: flex; gap: 2px; padding: 0 8px; border-bottom: 1px solid var(--ed-filet); }
+/* Six onglets depuis le socle 0.3.0 (« Messages ») : sur un seul rang de
+   340 px, chacun tombait sous les 50 px et « Messages » ne tenait plus.
+   Deux rangs de trois, en grille : les colonnes restent alignées, et le
+   tiroir (380 px au plus, 92 % d'un téléphone) les tient de la même façon. */
+.ed-onglets {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 2px;
+  padding: 0 8px; border-bottom: 1px solid var(--ed-filet);
+}
+/* `flex-wrap` : relecture du 3 octobre 2026. Avec « 12 » ou « 99+ »,
+   « Messages » et sa pastille ne tenaient plus dans un tiers de 340 px (ni
+   du tiroir de 294 px sur un écran de 320 px) : le contenu, centré,
+   débordait sur « Versions » et hors du panneau. Quand il ne tient pas, la
+   pastille passe SOUS le mot. Pas de mot coupé : « Messa… » dirait moins
+   qu'un onglet un peu plus haut. */
 .ed-onglet {
-  flex: 1 1 auto; min-height: 44px; padding: 8px 4px;
+  display: inline-flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 2px 6px;
+  min-width: 0; min-height: 44px; padding: 8px 4px;
   border: 0; border-bottom: 3px solid transparent; background: none;
   font: inherit; font-size: 15px; font-weight: 600; color: var(--ed-encre-douce); cursor: pointer;
 }
 .ed-onglet:hover { color: var(--ed-encre); }
 .ed-onglet[aria-selected="true"] { color: var(--ed-accent); border-bottom-color: var(--ed-accent); }
+/* Le compte des messages non lus : blanc sur danger, 7,21:1 (mesuré plus
+   haut). Une pastille et un chiffre, jamais la couleur seule : le nom de
+   l'onglet dit aussi « 3 messages non lus » aux lecteurs d'écran. */
+.ed-pastille-compte {
+  flex: none; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 999px;
+  background: var(--ed-danger); color: #FFFFFF;
+  font-size: 12px; font-weight: 700; line-height: 20px; text-align: center; font-variant-numeric: tabular-nums;
+}
 .ed-panneau__corps { flex: 1; min-height: 0; overflow: auto; padding: 12px 16px 48px; }
 .ed-panneau__corps:focus { outline: none; }
 .ed-panneau__titre { margin: 4px 0 4px; font-size: 18px; }
@@ -319,6 +341,43 @@ button.ed-element__nom:hover { background: var(--ed-accent-doux); }
 .ed-version__texte { flex: 1 1 180px; font-size: 15px; }
 .ed-journal { gap: 0; }
 .ed-journal li { padding: 6px 0; border-bottom: 1px solid var(--ed-filet); font-size: 14px; }
+.ed-journal__detail { margin-top: 4px; color: var(--ed-encre-douce); }
+.ed-journal__detail summary { cursor: pointer; min-height: 32px; display: flex; align-items: center; }
+.ed-journal__detail p { margin: 4px 0 0; overflow-wrap: anywhere; }
+
+/* Une phrase d'aide suivie de son bouton (« Voir les messages »). */
+.ed-ligne-aide { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+
+/* ----- Les messages (onglet « Messages ») -----
+   Un message non lu : un filet d'accent à gauche, le nom en gras ET le
+   mot « Non lu » (accent sur accent doux, 6,20:1) — jamais la couleur
+   seule. Le texte du visiteur garde ses retours à la ligne (`pre-wrap`) et
+   se coupe n'importe où : une adresse collée de 200 caractères ne doit pas
+   élargir le panneau. */
+.ed-messages { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.ed-message { border: 1px solid var(--ed-filet); border-radius: var(--ed-rayon); background: var(--ed-surface); }
+.ed-message.est-non-lu { border-left: 4px solid var(--ed-accent); }
+.ed-message.est-ouvert { border-color: var(--ed-accent); }
+.ed-message__tete {
+  width: 100%; display: flex; align-items: flex-start; gap: 6px; min-height: 44px; padding: 8px;
+  border: 0; border-radius: var(--ed-rayon); background: none; color: var(--ed-encre);
+  font: inherit; text-align: left; cursor: pointer;
+}
+.ed-message__tete:hover { background: var(--ed-accent-doux); }
+.ed-message__tete > .ed-icone { margin-top: 2px; transition: transform .15s ease; }
+.ed-message__tete[aria-expanded="true"] > .ed-icone { transform: rotate(90deg); }
+.ed-message__resume { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.ed-message__ligne { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.ed-message__nom { font-weight: 600; overflow-wrap: anywhere; }
+.ed-message.est-non-lu .ed-message__nom { font-weight: 800; }
+.ed-message__date { font-size: 13px; color: var(--ed-encre-douce); }
+.ed-message__apercu { font-size: 14px; color: var(--ed-encre-douce); overflow-wrap: anywhere; }
+.ed-message__corps { display: flex; flex-direction: column; gap: 10px; padding: 10px 12px 12px; border-top: 1px solid var(--ed-filet); }
+.ed-message__texte { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; unicode-bidi: isolate; }
+.ed-message__coordonnees { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 10px; margin: 0; font-size: 14px; }
+.ed-message__coordonnees dt { font-weight: 600; }
+.ed-message__coordonnees dd { margin: 0; overflow-wrap: anywhere; }
+.ed-message__coordonnees a { color: var(--ed-accent); font-weight: 600; }
 
 /* ----- Les barres flottantes (posées par-dessus la page) ----- */
 .ed-calque { position: fixed; inset: 0; z-index: 30; pointer-events: none; }
@@ -487,6 +546,7 @@ button.ed-element__nom:hover { background: var(--ed-accent-doux); }
   .ed-haut { gap: 6px; padding: 6px 8px; }
   .ed-haut__page { max-width: 9.5rem; }
   .ed-haut__outils { display: inline-flex; }
+  .ed-haut__outils .ed-pastille-compte { margin-left: -2px; }
   .ed-etat-enregistrement { font-size: 12px; max-width: 8.5rem; }
   .ed-haut__publier { min-width: 0; }
 }
@@ -497,6 +557,17 @@ button.ed-element__nom:hover { background: var(--ed-accent-doux); }
   .ed-etat-enregistrement { margin-right: auto; max-width: none; }
   .ed-fenetre__actions { justify-content: stretch; }
   .ed-fenetre__actions .ed-bouton { flex: 1 1 auto; }
+}
+
+/* ----- Sous 400 px : un vieux téléphone, ou un ordinateur zoomé à 400 % -----
+   État de l'enregistrement + « Outils » avec sa pastille + « Publier »
+   faisaient 324 px pour 304 disponibles à 320 px (relecture du 3 octobre
+   2026 ; sans message non lu, la ligne tenait au pixel près). Le
+   débordement élargissait TOUTE la page de l'éditeur, et le tiroir (fixé
+   à droite) sortait en partie de l'écran avec son bouton de fermeture.
+   La barre passe à la ligne au lieu de déborder (WCAG 1.4.10). */
+@media (max-width: 399px) {
+  .ed-haut__fin { flex-wrap: wrap; row-gap: 6px; }
 }
 
 /* ----- Rien ne bouge pour qui l'a demandé ----- */

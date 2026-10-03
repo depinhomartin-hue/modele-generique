@@ -7,3 +7,74 @@
 .contact__moyen { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .contact__etiquette { font-size: .78rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--texte-doux); }
 .contact__valeur { font-size: 1.2rem; font-weight: 700; overflow-wrap: anywhere; }
+
+/* ----- Le formulaire (3 octobre 2026) -----
+
+   Le texte et les moyens de joindre à gauche, le formulaire à droite ; sur
+   un téléphone, l'un sous l'autre. Le formulaire vit dans une CARTE : la
+   carte rebranche les rôles sur les couleurs claires (socle.css), si bien
+   qu'il reste lisible même dans une section au fond foncé.
+
+   Couples employés, tous déclarés dans `COUPLES` (themes.js) et mesurés à
+   4,5:1 au moins dans chaque thème (outils/tester.mjs les remesure) :
+     libellés, saisie, remerciement   texte sur surface, texte sur fond
+     notice, légende en édition       texte-doux sur surface
+     messages d'erreur, liens         accent sur surface
+     résumé des erreurs               texte et accent sur doux
+     bouton                           sur-accent sur accent
+   Le bord des champs est en texte-doux : il tient 4,5:1 sur la carte comme
+   sur le fond du champ, bien au-dessus des 3:1 qu'exige un contour de
+   champ (WCAG 1.4.11). La couleur des filets (`--trait`) n'y suffirait
+   pas : 1,3:1 sur la carte. Aucune couleur n'est écrite en dur ici. */
+.contact__grille--formulaire .contact__moyens { margin-top: clamp(20px, 3vw, 32px); }
+@media (min-width: 860px) {
+  .contact__grille--formulaire { grid-template-columns: minmax(0, .85fr) minmax(0, 1.15fr); }
+}
+.contact__envoi { min-width: 0; padding: clamp(20px, 3vw, 32px); }
+.contact__formulaire { position: relative; display: flex; flex-direction: column; gap: 20px; }
+.contact__champ { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.contact__libelle { font-weight: 700; }
+
+/* Des champs d'au moins 48 px de haut (le doigt en demande 44), et un
+   texte de 16 px : en dessous, un iPhone agrandit la page au toucher. */
+.contact__saisie {
+  width: 100%; min-height: 48px; margin: 0; padding: 10px 14px;
+  font: inherit; font-size: 1rem; line-height: 1.4;
+  color: var(--texte); background: var(--fond);
+  border: 1px solid var(--texte-doux); border-radius: calc(var(--rayon) * .6);
+}
+textarea.contact__saisie { min-height: 168px; resize: vertical; }
+.contact__saisie:focus { border-color: var(--accent); }
+/* Le focus se VOIT, à la souris comme au clavier : on y écrit. */
+.contact__saisie:focus,
+.contact__saisie:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+
+/* Un champ refusé : le message le dit en mots, le bord épaissi le
+   souligne — jamais la couleur seule. */
+.contact__champ--erreur .contact__saisie { border-width: 2px; border-color: var(--accent); }
+.contact__erreur { color: var(--accent); font-weight: 700; }
+.contact__alerte {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 14px 18px; border-radius: calc(var(--rayon) * .6);
+  background: var(--doux); color: var(--texte);
+  border-left: 4px solid var(--accent);
+}
+.contact__alerte p { font-weight: 700; }
+.contact__alerte ul { margin: 0; padding-left: 1.2em; }
+.contact__alerte li + li { margin-top: 4px; }
+
+.contact__pied { display: flex; flex-direction: column; align-items: flex-start; gap: 14px; }
+.contact__notice { color: var(--texte-doux); font-size: .9rem; max-width: 60ch; }
+.contact__merci { font-size: 1.15rem; font-weight: 700; color: var(--texte); }
+
+/* Le piège à robots : hors de l'écran (pas `display: none`, que certains
+   robots savent sauter), hors du clavier (`tabindex="-1"`) et des lecteurs
+   d'écran (`aria-hidden`). Personne ne le remplit, sauf un robot. */
+.contact__piege { position: absolute; left: -10000px; top: auto; width: 1px; height: 1px; overflow: hidden; }
+
+/* En ÉDITION, les champs sont désactivés : ils gardent l'allure qu'ils ont
+   sur le site, au lieu du gris pâle des navigateurs (l'aperçu doit
+   montrer la page telle qu'elle sera). */
+.contact__saisie:disabled { opacity: 1; color: var(--texte); -webkit-text-fill-color: var(--texte); cursor: default; }
+.contact__apres-envoi { margin-top: 24px; padding-top: 18px; border-top: 1px dashed var(--texte-doux); display: flex; flex-direction: column; gap: 6px; }
+.contact__apres-envoi-titre { color: var(--texte-doux); font-size: .85rem; font-weight: 700; }

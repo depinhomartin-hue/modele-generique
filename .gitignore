@@ -10,3 +10,9 @@ node_modules/
 .apercu/
 # Le lien d'accès d'une maquette (contient le secret ACCES_DEMO) : jamais dans le dépôt
 .acces-demo
+# Le dossier de travail de nouveau-client (« clients/.nouveau-<id>-XXXX »),
+# renommé en clients/<id> à la fin, supprimé en cas d'erreur. Seul un
+# arrêt brutal en laisse un : il ne doit pas bloquer un déploiement (dépôt
+# « modifié ») ni partir dans un commit. deployer ne le prend pas pour un
+# client : un identifiant ne commence jamais par un point.
+clients/.nouveau-*/
