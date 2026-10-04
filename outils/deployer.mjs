@@ -53,6 +53,8 @@
 
    Pour les tests seulement :
    - `ATELIER_WRANGLER` remplace le binaire wrangler (sinon `npx wrangler`) ;
+     un fichier .js ou .mjs y est lancé par Node (Windows ne sait pas
+     l'exécuter seul) ;
    - `ATELIER_ORIGINE` remplace « https://<hôte> » dans la vérification du
      site (« {hote} » y est remplacé par l'hôte) ;
    - `ATELIER_PATIENCE_MS` : l'attente entre deux essais de cette
@@ -148,9 +150,27 @@ function urlDe(hote, chemin) {
 /* ----- Les commandes ----- */
 const sansCouleurs = (s) => String(s || "").replace(/\x1b\[[0-9;]*m/g, "");
 
+/* Lancer npm, npx ou wrangler. Sous Windows (4 octobre 2026), npm et npx
+   sont des fichiers .cmd : Node ne les trouve qu'à travers cmd.exe
+   (« spawnSync npm ENOENT » sinon), et un faux wrangler en .mjs ne se
+   lance que par Node lui-même. Sur Mac et Linux, rien ne change.
+   Pour cmd.exe, chaque morceau qui n'est pas « sûr » est mis entre
+   guillemets ; un guillemet ou un % (que cmd.exe interprète même entre
+   guillemets) est refusé plutôt que deviné. */
+const MORCEAU_SUR = /^[\w.:\\/+-]+$/;
+function commande(cmd, args, options) {
+  if (process.platform !== "win32") return spawnSync(cmd, args, options);
+  if (/\.[cm]?js$/i.test(cmd)) return spawnSync(process.execPath, [cmd, ...args], options);
+  const morceaux = [cmd, ...args];
+  const refuse = morceaux.find((m) => /["%\r\n]/.test(m));
+  if (refuse !== undefined) return { status: null, stdout: "", stderr: "", error: new Error(`caractère refusé par cmd.exe dans « ${refuse} »`) };
+  const ligne = morceaux.map((m) => (MORCEAU_SUR.test(m) ? m : `"${m}"`)).join(" ");
+  return spawnSync(ligne, Object.assign({}, options, { shell: true }));
+}
+
 function wrangler(args, { racine, compte, voir = false }) {
   const [cmd, debut] = process.env.ATELIER_WRANGLER ? [process.env.ATELIER_WRANGLER, []] : ["npx", ["wrangler"]];
-  return spawnSync(cmd, debut.concat(args), {
+  return commande(cmd, debut.concat(args), {
     cwd: racine,
     env: Object.assign({}, process.env, { CLOUDFLARE_ACCOUNT_ID: compte.id }),
     encoding: "utf8",
@@ -414,7 +434,7 @@ export async function deployer({ racine = racineAtelier(), vague = "tous", clien
 
   // 2. Les vérifications du socle.
   ecrire("npm run verifier …");
-  const v = spawnSync("npm", ["run", "verifier"], { cwd: racine, stdio: ["ignore", "inherit", "inherit"] });
+  const v = commande("npm", ["run", "verifier"], { cwd: racine, stdio: ["ignore", "inherit", "inherit"] });
   if (v.status !== 0) {
     erreur("✗ Refusé : npm run verifier a échoué" + (v.error ? " (" + v.error.message + ")" : "") + ".");
     return 1;
@@ -497,5 +517,6 @@ if (estLance(import.meta.url)) {
     client: args.options.get("--client") ?? null,
     aBlanc: args.drapeaux.has("--a-blanc")
   });
-  process.exit(code);
+  // exitCode et non exit() : voir la fin d'exporter.mjs (Windows).
+  process.exitCode = code;
 }

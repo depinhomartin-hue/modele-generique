@@ -371,9 +371,12 @@ if (estLance(import.meta.url)) {
       id, sortie, depuis: args.options.get("--depuis") || null, photos: args.drapeaux.has("--photos"),
       origine: args.options.get("--origine") || "", hebergeur: args.options.get("--hebergeur") || "", delai
     });
-    process.exit(r.echecs.length ? 1 : 0);
+    // exitCode et non exit() : sous Windows, quitter d'un coup pendant que
+    // les connexions des photos se referment fait planter Node (« Assertion
+    // failed … async.c », 4 octobre 2026) et le code de sortie est perdu.
+    process.exitCode = r.echecs.length ? 1 : 0;
   } catch (e) {
     console.error("✗ " + e.message);
-    process.exit(1);
+    process.exitCode = 1;
   }
 }

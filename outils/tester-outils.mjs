@@ -20,7 +20,7 @@ import {
   mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync, copyFileSync, chmodSync, readdirSync, statSync
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, delimiter } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { createServer } from "node:http";
 import { createHash } from "node:crypto";
@@ -73,6 +73,9 @@ mkdirSync(PIEGE);
 for (const nom of ["npx", "wrangler"]) {
   writeFileSync(join(PIEGE, nom), "#!/bin/sh\necho \"$0 $*\" >> '" + PIEGE_JOURNAL + "'\nexit 97\n");
   chmodSync(join(PIEGE, nom), 0o755);
+  // Sous Windows, cmd.exe ne lance que les .cmd (et .exe…) : le même
+  // piège, dans sa langue (4 octobre 2026).
+  if (process.platform === "win32") writeFileSync(join(PIEGE, nom + ".cmd"), "@echo %~nx0 %* >> \"" + PIEGE_JOURNAL + "\"\r\n@exit /b 97\r\n");
 }
 writeFileSync(FAUX, `#!/usr/bin/env node
 import { appendFileSync } from "node:fs";
@@ -115,11 +118,14 @@ function fabriquerRacine(nom) {
 function lancer(outil, args, { racine = null, env = {} } = {}) {
   return new Promise((resolu) => {
     const environnement = Object.assign({}, process.env, {
-      PATH: PIEGE + ":" + process.env.PATH,
       NO_UPDATE_NOTIFIER: "1",
       npm_config_update_notifier: "false",
       FAUX_JOURNAL
     }, env);
+    // Sous Windows, la variable s'appelle souvent « Path », et le
+    // séparateur est « ; » : on pose le piège devant CELLE qui existe.
+    const clePath = Object.keys(environnement).find((k) => k.toUpperCase() === "PATH") || "PATH";
+    environnement[clePath] = PIEGE + delimiter + (environnement[clePath] || "");
     delete environnement.ATELIER_RACINE;
     if (racine) environnement.ATELIER_RACINE = racine;
     for (const [k, v] of Object.entries(env)) if (v === null) delete environnement[k];
@@ -222,7 +228,11 @@ try {
       verifier("nouveau-client : " + f + " écrit", existsSync(join(dossierMuller, f)));
     }
     verifier("nouveau-client : aucun dossier temporaire ne reste", !readdirSync(join(atelier1, "clients")).some((n) => n.startsWith(".nouveau-")));
-    verifier("nouveau-client : le dossier est un dossier ordinaire (pas 0700)", (statSync(dossierMuller).mode & 0o777) === 0o755, (statSync(dossierMuller).mode & 0o777).toString(8));
+    // Les droits Unix (0755, 0600) n'existent pas sous Windows : Node y
+    // répond toujours 666 ou 777. Là-bas, c'est le dossier personnel de
+    // l'utilisateur qui protège le fichier (4 octobre 2026).
+    const droitsUnix = process.platform !== "win32";
+    if (droitsUnix) verifier("nouveau-client : le dossier est un dossier ordinaire (pas 0700)", (statSync(dossierMuller).mode & 0o777) === 0o755, (statSync(dossierMuller).mode & 0o777).toString(8));
 
     const fiche = lireJson(join(dossierMuller, "client.json"));
     const ficheDemo = lireJson(join(atelier1, "clients", DEMO, "client.json"));
@@ -278,7 +288,7 @@ try {
 
     // Le lien d'accès.
     const acces = readFileSync(join(dossierMuller, ".acces-demo"), "utf8").split("\n");
-    verifier(".acces-demo : lisible par son seul propriétaire", (statSync(join(dossierMuller, ".acces-demo")).mode & 0o777) === 0o600);
+    if (droitsUnix) verifier(".acces-demo : lisible par son seul propriétaire", (statSync(join(dossierMuller, ".acces-demo")).mode & 0o777) === 0o600);
     verifier(".acces-demo : un secret sûr de 43 caractères", /^[A-Za-z0-9_-]{43}$/.test(acces[0]));
     verifier(".acces-demo : le lien sur l'adresse workers.dev du client", acces[1] === "https://vitrine-boulangerie-muller.depinhomartin.workers.dev/admin/demo?cle=" + acces[0], acces[1]);
     verifier("nouveau-client : le secret n'est jamais affiché", !r.tout.includes(acces[0]));
@@ -689,8 +699,10 @@ try {
     verifier("--photos : les pages gardent les adresses /medias/…", readFileSync(join(sortie, "index.html"), "utf8").includes('src="' + PHOTO_A + '"'));
     const ecarts = demandesPhotos.slice(1).map((d, i) => d.quand - demandesPhotos[i].quand);
     verifier("--photos : un délai entre deux photos", demandesPhotos.length === 4 && ecarts.every((e) => e >= 50), JSON.stringify(ecarts));
-    const tout = spawnSync("grep", ["-rl", "Visiteuse Secrète", sortie], { encoding: "utf8" });
-    verifier("--depuis : les messages reçus ne partent jamais dans le site exporté", tout.stdout.trim() === "" && r.sortie.includes("1 message"), tout.stdout);
+    // Cherché par Node et non par grep, absent d'un terminal Windows ordinaire.
+    const fuites = readdirSync(sortie, { recursive: true }).map(String).filter((f) => statSync(join(sortie, f)).isFile() &&
+      readFileSync(join(sortie, f), "utf8").includes("Visiteuse Secrète"));
+    verifier("--depuis : les messages reçus ne partent jamais dans le site exporté", fuites.length === 0 && r.sortie.includes("1 message"), fuites.join(", "));
     verifier("--depuis : un export complet ne parle pas de messages laissés", !r.sortie.includes("plus récents"), r.sortie);
 
     // L'administration n'exporte que les 2 000 plus récents et dit combien
