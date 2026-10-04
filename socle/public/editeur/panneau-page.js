@@ -17,6 +17,7 @@ import { h, bouton, icone, idUnique } from "./dom.js";
 import { groupe, aide, champTexte, listeEditable, outils } from "./panneau-commun.js";
 import * as Registre from "/rendu/registre.js";
 import { ancresDeLaPage } from "/rendu/page.js";
+import { themeDe } from "/rendu/themes.js";
 import { nomDuBloc, lireChemin, cheminAlt, descripteurListe } from "/rendu/structure.js";
 import { texteBrut, imageSure } from "/rendu/outils.js";
 import { cheminsImages, cheminsLiensDuBloc, liensVersBloc, nomElement, MAX_SECTIONS_PAGE } from "./operations.js";
@@ -56,6 +57,12 @@ export function construirePage(app, ctx) {
   const page = c.pages[pageId];
   const n = page.ordre.length;
   const corps = [];
+  /* Le fond d'une section se nomme d'après ce qu'il MONTRE : dans un thème
+     sombre (braise), « Clair » est noir et « Foncé » est clair — le thème
+     donne ses propres noms (`nomsFonds`, themes.js, 4 octobre 2026).
+     Avant la liste des sections : elle construit leurs réglages tout de suite. */
+  const nomsFonds = themeDe(c).theme.nomsFonds || {};
+  const libelleChoix = (r, ch) => (r.cle === "fond" && nomsFonds[ch.valeur]) || ch.libelle;
 
   corps.push(h("h2", { classe: "ed-panneau__titre" }, "Page « " + nomDePage(c, pageId) + " »"));
 
@@ -139,7 +146,7 @@ export function construirePage(app, ctx) {
             ctx.viser("bloc:" + id + ":reglage:" + r.cle + ":" + ch.valeur);
             app.executer((x) => { x.blocs[id][r.cle] = ch.valeur; });
           });
-          fs.append(h("label", { classe: "ed-option__choix", for: idRadio }, radio, h("span", null, ch.libelle)));
+          fs.append(h("label", { classe: "ed-option__choix", for: idRadio }, radio, h("span", null, libelleChoix(r, ch))));
         }
         d.append(fs);
       }

@@ -72,5 +72,21 @@ export function construireTheme(app, ctx) {
       }), "ed-options--ligne"),
     aide("Le texte courant ne change pas de taille : il reste lisible sur un téléphone.")));
 
+  // Les animations douces (socle.css, « Le mouvement ») : une case, pas un
+  // choix d'effets. Elles se voient dans l'aperçu ; pendant l'édition, rien
+  // ne bouge (cadre.css).
+  const idAnim = idUnique("case");
+  const caseAnim = h("input", { type: "checkbox", id: idAnim, coche: resolu.animations, "data-cle": "theme:animations" });
+  caseAnim.addEventListener("change", () => {
+    ctx.viser("theme:animations");
+    app.executer((x) => {
+      x.theme = Object.assign({}, x.theme, { animations: caseAnim.checked });
+    }, { annonce: caseAnim.checked ? "Animations douces activées." : "Animations douces désactivées." });
+  });
+  corps.push(groupe("Mouvement",
+    h("div", { classe: "ed-case" }, caseAnim, h("label", { for: idAnim }, "Animations douces")),
+    aide("Le haut de la page apparaît en douceur, puis chaque section glisse légèrement quand on fait défiler. " +
+      "Visible dans l'aperçu. Rien ne bouge pour les visiteurs qui ont demandé moins d'animations à leur téléphone ou à leur ordinateur.")));
+
   return corps;
 }

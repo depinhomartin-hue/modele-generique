@@ -223,6 +223,38 @@ function boutonEntete(contenu, ctx) {
     ed(ctx, "entete.bouton.texte") + edDest(ctx, "entete.bouton.vers") + sansLien(ctx, vers) + ">" + echapper(b.texte) + "</a>";
 }
 
+/* La présentation du menu (4 octobre 2026), un choix de l'onglet « Site » :
+   — « barre » (par défaut) : les liens dans la barre sur grand écran, le
+     tiroir sur téléphone ;
+   — « plein-ecran » : un lien « Menu » à toutes les largeurs ; le menu est
+     un calque fixe qui remplit l'écran, en très grandes lettres, affiché
+     par `:target` (socle.css). Toujours sans JavaScript, et il s'ouvre LÀ
+     OÙ L'ON EST : la première version reprenait le <details> du tiroir, que
+     l'en-tête rendu au flux ouvrait tout en haut de la page — 3 000 px
+     au-dessus de l'écran pour qui avait défilé (relecture du 4 octobre
+     2026). Un lien de section change la cible : le menu se referme de
+     lui-même, et la section visée n'est pas dessous. « Fermer » vise un
+     repère fixe, la page ne bouge pas ; le bouton « retour » du navigateur
+     le referme aussi.
+     Ses identifiants portent un « _ », qu'aucune ancre de section ne peut
+     porter (`IDENTIFIANT`, outils.js) : un restaurant peut avoir sa
+     section « menu ».
+     En ÉDITION, l'en-tête reste celui de la barre : l'éditeur ne suit pas
+     les liens (pas de `:target`), et ses outils visent le menu affiché.
+     L'aperçu montre le plein écran.
+   Toute autre valeur donne le premier choix : la règle de tous les
+   réglages. */
+export const ID_MENU_PLEIN = "menu_plein";
+const ID_MENU_FERME = "menu_ferme";
+export const MENUS = Object.freeze([
+  Object.freeze({ valeur: "barre", libelle: "Dans la barre" }),
+  Object.freeze({ valeur: "plein-ecran", libelle: "Plein écran" })
+]);
+export function menuDe(contenu) {
+  const v = contenu && contenu.entete && contenu.entete.menu;
+  return MENUS.some((m) => m.valeur === v) ? v : MENUS[0].valeur;
+}
+
 function rendreEntete(contenu, ctx) {
   const nom = contenu.site.nom;
   const logo = imageSure(contenu.site.logo);
@@ -232,13 +264,27 @@ function rendreEntete(contenu, ctx) {
   const liens = liensMenu(contenu, ctx);
   const btn = boutonEntete(contenu, ctx);
   const menu = liens ? '<ul class="menu" role="list">' + liens + "</ul>" : "";
+  const burger = '<span class="entete__burger" aria-hidden="true"><span></span><span></span><span></span></span>';
+  if (!ctx.edition && menuDe(contenu) === "plein-ecran" && (menu || btn)) {
+    const lienMarque = '<a class="entete__marque" href="/">' + marque + "</a>";
+    return '<header class="entete entete--plein">' +
+      '<div class="conteneur entete__barre">' + lienMarque +
+        '<a class="entete__ouvrir" href="#' + ID_MENU_PLEIN + '">' + burger + libHtml(ctx, "menu") + "</a>" +
+      "</div>" +
+      '<span id="' + ID_MENU_FERME + '" class="entete__repere"></span>' +
+      '<nav id="' + ID_MENU_PLEIN + '" class="entete__plein" aria-label="Menu principal">' +
+        '<div class="conteneur entete__barre">' + lienMarque +
+          '<a class="entete__fermer" href="#' + ID_MENU_FERME + '"><span class="entete__croix" aria-hidden="true"></span>' + libHtml(ctx, "fermerMenu") + "</a>" +
+        "</div>" +
+        '<div class="conteneur entete__plein-liens">' + menu + btn + "</div>" +
+      "</nav></header>";
+  }
   return '<header class="entete">' +
     '<div class="conteneur entete__barre">' +
       '<a class="entete__marque" href="/">' + marque + "</a>" +
       (menu || btn ? '<nav class="entete__nav" aria-label="Menu principal">' + menu + btn + "</nav>" : "") +
       (menu || btn
-        ? '<details class="entete__tiroir"><summary class="entete__ouvrir">' +
-            '<span class="entete__burger" aria-hidden="true"><span></span><span></span><span></span></span>' +
+        ? '<details class="entete__tiroir"><summary class="entete__ouvrir">' + burger +
             libHtml(ctx, "menu") + "</summary>" +
             '<nav class="entete__tiroir-nav" aria-label="Menu principal">' + menu + btn + "</nav></details>"
         : "") +

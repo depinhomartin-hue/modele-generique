@@ -170,6 +170,9 @@ client vaut « a-creer », son `wrangler deploy` échoue : c'est voulu, et
 
 ## Bon à savoir
 
+- **Sous Windows** (le PC de bureau, 4 octobre 2026), tout marche depuis
+  Git Bash comme depuis PowerShell ; les commandes du processus qui
+  emploient `cp`, `head` ou `tr` se lancent dans Git Bash.
 - **Ce projet est sur le Bureau, protégé par macOS.** Le volet de
   prévisualisation de l'application Claude n'a pas le droit d'y lire :
   `wrangler dev` y reste bloqué sans un message. Depuis un terminal, tout
@@ -194,15 +197,24 @@ client vaut « a-creer », son `wrangler deploy` échoue : c'est voulu, et
   légales, formulaire de contact et onglet Messages, données structurées
   pour Google, redirection de `www`, et les outils de l'atelier
   (`nouveau-client`, `controler`, `deployer`, `exporter --depuis
-  --photos`). **Pas encore déployé** : `npm run deployer -- --vague demo`.
-  Relu le même jour : outils resserrés (espace de contenu nommé d'après
-  le client, espaces partagés refusés, mentions masquées vues, export qui
-  ne recopie que de vraies photos et remplace l'hébergeur) — détail dans
-  l'historique de PROCESSUS.md.
+  --photos`). Relu le même jour : outils resserrés (espace de contenu
+  nommé d'après le client, espaces partagés refusés, mentions masquées
+  vues, export qui ne recopie que de vraies photos et remplace
+  l'hébergeur) — détail dans l'historique de PROCESSUS.md.
+- Socle 0.4.0 (4 octobre 2026), pour le site de l'atelier
+  (`clients/projet-web`) : le thème **Braise** (le premier thème sombre :
+  noir et orange, noms des fonds propres au thème), le duo **Affiche**
+  (titres en capitales), la case **« Animations douces »** de l'onglet
+  Thème (entrée de l'accroche, titres qui montent, cartes qui glissent,
+  marches entre les sections, survols — en CSS seulement, coupées par le
+  mouvement réduit, à l'impression et pendant l'édition), le **menu plein
+  écran** (onglet Site, sans JavaScript), une accroche et une
+  présentation sans photo sur une seule colonne. Les outils marchent
+  aussi sous Windows. Relu le même jour (15 défauts confirmés, corrigés).
 
 La démo est en ligne, **temporairement**, sur le compte Cloudflare de Martin
-(celui de Graine de Pensée), en socle 0.2.0, administration ouverte par le
-lien secret de maquette :
+(celui de Graine de Pensée), administration ouverte par le lien secret de
+maquette ou le bouton « Outrepasser l'authentification » :
 https://vitrine-demo-boulangerie.depinhomartin.workers.dev — à déplacer vers
 le compte de l'atelier dès qu'il existera (changer `atelier.json`), puis à
 retirer d'ici (`npx wrangler delete -c clients/demo-boulangerie/wrangler.toml`).

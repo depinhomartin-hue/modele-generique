@@ -23,6 +23,8 @@ import { echapper, ed } from "./outils.js";
 
 export const LIBELLES = {
   menu: "Menu",
+  // Le lien qui referme le menu plein écran (page.js, 4 octobre 2026).
+  fermerMenu: "Fermer",
   voirPlan: "Voir le plan",
   telephone: "Téléphone",
   email: "E-mail",

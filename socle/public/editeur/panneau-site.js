@@ -10,7 +10,7 @@
 
 import { h, bouton, idUnique } from "./dom.js";
 import { groupe, aide, champTexte, listeEditable } from "./panneau-commun.js";
-import { PAGE_ACCUEIL } from "/rendu/page.js";
+import { PAGE_ACCUEIL, MENUS, menuDe } from "/rendu/page.js";
 import { lireChemin } from "/rendu/structure.js";
 import { texteBrut, imageSure } from "/rendu/outils.js";
 import { listePages, decrireDestination } from "./liens.js";
@@ -113,12 +113,30 @@ export function construireSite(app, ctx) {
     quand: () => app.ouvrirLien(chemin + "." + i + ".vers"), attributs: { "data-cle": "liste:" + chemin + ":" + i + ":lien" }
   });
   const nommerLien = (el, i) => texteBrut(el && el.texte) || "Lien " + (i + 1) + " (sans texte)";
+  // Sa présentation (4 octobre 2026) : dans la barre, ou plein écran
+  // derrière le bouton « Menu » (page.js, `MENUS`).
+  const nomMenu = idUnique("presentation-menu");
+  const actuel = menuDe(c);
+  const presentation = h("fieldset", { classe: "ed-options ed-options--compactes" }, h("legend", null, "Présentation du menu"));
+  for (const m of MENUS) {
+    const idRadio = idUnique("choix");
+    const radio = h("input", { type: "radio", name: nomMenu, id: idRadio, value: m.valeur, coche: m.valeur === actuel, "data-cle": "entete:menu:" + m.valeur });
+    radio.addEventListener("change", () => {
+      if (!radio.checked) return;
+      ctx.viser("entete:menu:" + m.valeur);
+      app.executer((x) => { x.entete = Object.assign({}, x.entete, { menu: m.valeur }); });
+    });
+    presentation.append(h("label", { classe: "ed-option__choix", for: idRadio }, radio, h("span", null, m.libelle)));
+  }
   corps.push(groupe("Le menu",
     aide("Le texte de chaque lien se modifie directement dans le menu, sur la page."),
     listeEditable(app, ctx, "entete.liens", {
       titre: "Liens du menu", nommer: nommerLien, details: descLien, plus: boutonLien("entete.liens"),
       apresAjout: (i) => app.ouvrirLien("entete.liens." + i + ".vers")
-    })));
+    }),
+    presentation,
+    aide("« Plein écran » : un seul bouton « Menu », sur ordinateur comme sur téléphone ; ouvert, le menu remplit l'écran en très grandes lettres. " +
+      "Il se voit dans l'aperçu : pendant que vous modifiez la page, le menu reste dans la barre, pour que vous puissiez changer ses liens.")));
 
   /* ----- Le bouton de l'en-tête ----- */
   const b = c.entete && c.entete.bouton && typeof c.entete.bouton === "object" ? c.entete.bouton : null;

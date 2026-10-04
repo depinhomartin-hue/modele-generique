@@ -22,7 +22,9 @@
    serveur. */
 
 const CONTRAT = {
-  "/rendu/page.js": ["normaliser", "rendrePage", "rendreCorps", "PAGE_ACCUEIL", "ancresDeLaPage"],
+  // `MENUS` et `menuDe` : la présentation du menu, onglet « Site »
+  // (4 octobre 2026).
+  "/rendu/page.js": ["normaliser", "rendrePage", "rendreCorps", "PAGE_ACCUEIL", "ancresDeLaPage", "MENUS", "menuDe"],
   "/rendu/registre.js": ["BLOCS", "CATALOGUE", "nouveauBloc", "typeConnu", "valeurReglage", "reglageActif"],
   "/rendu/themes.js": ["THEMES", "DUOS", "CRANS_TITRES", "POLICES", "themeDe"],
   "/rendu/outils.js": ["texteRiche", "texteBrut", "echapper", "estVide", "adresseSure", "destination", "identifiantValide", "imageSure", "lienTelephone"],

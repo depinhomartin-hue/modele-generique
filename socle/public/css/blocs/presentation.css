@@ -10,4 +10,7 @@
   .presentation__grille { grid-template-columns: minmax(0, 1fr) minmax(0, .9fr); }
   .presentation--inverse .presentation__media { order: -1; }
   .presentation--inverse .presentation__grille { grid-template-columns: minmax(0, .9fr) minmax(0, 1fr); }
+  /* Sans photo (4 octobre 2026) : une colonne, pas une moitié de page vide.
+     Après la règle « inverse », de même poids : elle doit l'emporter. */
+  .presentation__grille:not(:has(> .presentation__media)) { grid-template-columns: minmax(0, 1fr); }
 }

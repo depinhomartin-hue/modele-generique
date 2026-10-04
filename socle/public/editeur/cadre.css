@@ -177,7 +177,15 @@ section[data-masque]::before {
    En deux tons, comme le focus : le halo bleu à 25 % qui l'entourait ne
    faisait que 1,2:1 sur une section foncée. L'anneau blanc remplit l'écart
    entre l'élément et le contour bleu. */
-[data-ed-eclair] { animation: ed-eclair 1.6s ease-out; }
+/* `!important` (4 octobre 2026) : les titres, cartes et photos portent
+   désormais une règle de mouvement du socle (socle.css, « Le mouvement »),
+   plus précise, qui aurait éteint cet éclair — et l'aurait lié au
+   défilement. Le raccourci `animation` remet aussi la chronologie à zéro.
+   Seulement quand le mouvement est permis : sinon, le cadre fixe plus bas
+   (relecture du 4 octobre 2026 — le !important battait le coupe-tout). */
+@media (prefers-reduced-motion: no-preference) {
+  [data-ed-eclair] { animation: ed-eclair 1.6s ease-out !important; }
+}
 @keyframes ed-eclair {
   0% { outline: 3px solid #1F5A8A; outline-offset: 4px; box-shadow: 0 0 0 4px rgba(255, 255, 255, 1); }
   100% { outline: 3px solid rgba(31, 90, 138, 0); outline-offset: 4px; box-shadow: 0 0 0 4px rgba(255, 255, 255, 0); }
@@ -187,4 +195,14 @@ section[data-masque]::before {
    faut pour le voir. */
 @media (prefers-reduced-motion: reduce) {
   [data-ed-eclair] { outline: 3px solid #1F5A8A; outline-offset: 4px; box-shadow: 0 0 0 4px #FFFFFF; }
+}
+
+/* ----- Le mouvement du site, coupé pendant l'édition (4 octobre 2026) -----
+   L'éditeur redessine la page à chaque changement : l'entrée de l'accroche
+   rejouerait sans fin, et une carte qui glisse pendant qu'on écrit dedans
+   désoriente. Les animations douces se regardent dans l'aperçu, qui ne
+   charge pas cette feuille. */
+:root {
+  --anim-entree: none !important; --anim-apparition: none !important; --anim-devoile: none !important;
+  --anim-marches: none !important; --anim-rideau: none !important; --marches: none !important; --survols: non !important;
 }

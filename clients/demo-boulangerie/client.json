@@ -3,7 +3,7 @@
   "demo": true,
   "mentionDemo": "Maquette de démonstration : la boulangerie présentée est fictive.",
   "domaine": "",
-  "socle": "0.3.0",
+  "socle": "0.4.0",
   "categorieGoogle": "Bakery",
   "accesLibre": true,
   "administration": { "adresses": [] }

@@ -87,12 +87,20 @@ body {
   text-rendering: optimizeLegibility;
 }
 img { max-width: 100%; height: auto; display: block; }
+/* La forme des titres vient du duo de polices (`titres`, themes.js) : sans
+   elle, les valeurs de toujours. La marque de l'en-tête et le nom du pied
+   suivent la même forme. */
 h1, h2, h3, h4 {
   font-family: var(--display);
-  font-weight: 500;
-  line-height: 1.12;
+  font-weight: var(--graisse-titre, 500);
+  line-height: var(--interligne-titre, 1.12);
   margin: 0;
   text-wrap: balance;
+}
+h1, h2, h3, h4, .entete__marque, .pied__nom {
+  text-transform: var(--casse-titre, none);
+  font-stretch: var(--largeur-titre, normal);
+  letter-spacing: var(--interlettrage-titre, normal);
 }
 p { margin: 0; }
 a { color: var(--accent); text-underline-offset: .18em; text-decoration-thickness: 1px; }
@@ -147,7 +155,7 @@ main:focus { outline: none; }
 }
 .entete__marque {
   color: var(--texte); text-decoration: none;
-  font-family: var(--display); font-weight: 600;
+  font-family: var(--display); font-weight: var(--graisse-titre, 600);
   font-size: calc(1.35rem * var(--echelle-titre, 1));
   line-height: 1.1;
 }
@@ -162,8 +170,9 @@ main:focus { outline: none; }
 
 /* Le tiroir du téléphone : un <details>, donc sans JavaScript. */
 .entete__tiroir { display: none; }
-.entete__ouvrir {
-  list-style: none; cursor: pointer;
+.entete__ouvrir,
+.entete__fermer {
+  list-style: none; cursor: pointer; text-decoration: none;
   display: inline-flex; align-items: center; gap: 10px;
   min-height: 44px; padding: 8px 14px;
   border: 1px solid var(--trait); border-radius: 999px;
@@ -193,6 +202,65 @@ main:focus { outline: none; }
    page, la section visée apparaît dessous. Un navigateur sans `:has()`
    garde l'ancien comportement, sans rien casser. */
 .entete:has(.entete__tiroir[open]) { position: relative; }
+
+/* ----- Le menu plein écran (4 octobre 2026) -----
+   `entete.menu: "plein-ecran"` (page.js, `MENUS`) : un lien « Menu » à
+   toutes les largeurs ; le menu est un calque FIXE qui remplit l'écran,
+   sur l'accent, en très grandes lettres (le menu du site de Catalin
+   Vintila). Sans JavaScript : il s'affiche quand il est la cible de
+   l'adresse (`:target`), là où l'on est dans la page, et se referme dès
+   qu'un lien change la cible — la section visée n'est jamais dessous.
+   « Fermer » vise un repère fixe (`.entete__repere`) : aller vers lui ne
+   fait pas défiler la page.
+   Sur l'accent, les rôles sont rebranchés sur un couple mesuré
+   (`surAccent` sur `accent`) : texte, focus, filets, et le bouton plein,
+   inversé. */
+/* Les deux cibles sont fixes, mais le navigateur les « fait venir » quand
+   même, sous la réserve de l'en-tête (`scroll-padding-top: 88px`, plus
+   haut) : la page sautait de 130 à 180 px à l'ouverture et à la fermeture
+   (essai du 4 octobre 2026). Une marge égale et contraire l'annule ; et la
+   page n'est pas bloquée derrière le menu (`overflow: hidden` déplaçait
+   aussi la page) — le menu retient lui-même le défilement. */
+.entete__repere,
+.entete__plein { scroll-margin-top: -88px; }
+.entete__repere { position: fixed; top: 0; left: 0; }
+.entete__plein { display: none; }
+.entete__plein:target {
+  --texte: var(--c-sur-accent);
+  --texte-doux: var(--c-sur-accent);
+  --accent: var(--c-sur-accent);
+  --sur-accent: var(--c-accent);
+  --trait: var(--c-sur-accent);
+  position: fixed; inset: 0; z-index: 90;
+  display: flex; flex-direction: column;
+  overflow-y: auto; overscroll-behavior: contain;
+  background: var(--c-accent); color: var(--texte);
+}
+.entete__plein .entete__barre { flex: none; }
+.entete--plein .entete__barre { flex-wrap: nowrap; }
+.entete--plein .entete__marque { min-width: 0; overflow-wrap: anywhere; }
+.entete--plein :is(.entete__ouvrir, .entete__fermer) { flex: none; }
+.entete__plein-liens {
+  flex: 1 0 auto;
+  padding-block: clamp(16px, 5vh, 56px) clamp(32px, 8vh, 88px);
+  display: flex; flex-direction: column; justify-content: space-between; align-items: flex-start; gap: 40px;
+}
+.entete__plein .menu { flex-direction: column; gap: 0; max-width: 100%; }
+.entete__plein .menu a {
+  font-family: var(--display); font-weight: var(--graisse-titre, 600);
+  text-transform: var(--casse-titre, none); font-stretch: var(--largeur-titre, normal); letter-spacing: var(--interlettrage-titre, normal);
+  font-size: calc(clamp(2rem, 1rem + 4.2vw, 4.4rem) * var(--echelle-titre, 1));
+  line-height: 1.02; padding: .08em 0;
+  overflow-wrap: anywhere;   /* un mot plus large que l'écran se coupe au lieu de déborder */
+}
+/* La croix de « Fermer », à la place du burger. */
+.entete__croix { position: relative; display: inline-block; width: 18px; height: 14px; }
+.entete__croix::before,
+.entete__croix::after {
+  content: ""; position: absolute; left: 0; top: 6px; width: 18px; height: 2px;
+  background: currentColor; border-radius: 2px; transform: rotate(45deg);
+}
+.entete__croix::after { transform: rotate(-45deg); }
 
 /* ----- Boutons ----- */
 .bouton {
@@ -244,7 +312,7 @@ main:focus { outline: none; }
   grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr));
   padding-bottom: 36px;
 }
-.pied__nom { font-family: var(--display); font-size: calc(1.6rem * var(--echelle-titre, 1)); font-weight: 600; margin-bottom: 8px; }
+.pied__nom { font-family: var(--display); font-size: calc(1.6rem * var(--echelle-titre, 1)); font-weight: var(--graisse-titre, 600); margin-bottom: 8px; }
 .pied__texte { color: var(--texte-doux); max-width: 44ch; }
 .pied__liens { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .pied__liens a { color: var(--texte); text-decoration: none; display: inline-block; padding: 6px 0; }
@@ -264,6 +332,143 @@ main:focus { outline: none; }
   display: block; width: 100%; aspect-ratio: 4 / 3;
   background: repeating-linear-gradient(45deg, var(--doux) 0 12px, var(--surface) 12px 24px);
   border: 2px dashed var(--trait); border-radius: var(--rayon);
+}
+
+/* ----- Le mouvement (4 octobre 2026) -----
+   Facultatif : rien ne bouge tant que le thème ne pose pas ses variables
+   (`--anim-…`, `--marches`, `--survols` : la case « Animations douces » de
+   l'onglet Thème, `variablesCss`). Sans elles, `animation` vaut `none`,
+   les marches n'existent pas, les survols restent ceux de toujours. Ce que
+   ce mouvement reprend des sites qui l'ont inspiré, en CSS seulement :
+   — l'ACCROCHE qui ouvre la page, une fois, au chargement : son titre
+     monte de derrière sa ligne de base, puis le reste arrive (une seconde
+     en tout) ;
+   — au DÉFILEMENT (`animation-timeline: view()`) : les titres de section
+     montent de la même façon, les cartes et les photos glissent en
+     place, et des MARCHES — des pavés de la couleur de la section
+     suivante — montent entre deux sections de fonds différents ;
+   — au SURVOL : un bouton à contour se remplit, un lien du menu se
+     souligne de gauche à droite, une photo de galerie se soulève.
+   Le défilement n'est jamais détourné : seul ce qui entre à l'écran bouge,
+   au rythme de la main, et seulement là où le navigateur le sait
+   (`@supports`) ; ailleurs, rien ne bouge. Ce qui est à l'écran au
+   chargement est déjà en place.
+   L'état de départ (transparent, décalé, coupé) n'existe QUE dans les
+   @keyframes : sans animation — vieux navigateur, mouvement réduit,
+   éditeur — tout est visible et à sa place. Jamais d'écran de chargement
+   ni de curseur personnalisé : c'est la règle du socle. On n'anime que ce
+   qui ne coûte rien à l'écran (transform, opacité, découpe). */
+@keyframes socle-entree { from { opacity: 0; transform: translateY(18px); } }
+@keyframes socle-apparition { from { opacity: 0; transform: translateY(32px); } }
+/* Le texte glisse vers le haut pendant que son bas reste coupé à la même
+   hauteur : il semble sortir d'une fente. La découpe suit l'élément qui
+   bouge, d'où une découpe égale au décalage. */
+@keyframes socle-devoile {
+  from { transform: translateY(100%); clip-path: inset(-.3em -.3em 100% -.3em); }
+  to { transform: none; clip-path: inset(-.3em); }
+}
+/* Le rideau du menu plein écran : il descend depuis le haut. */
+@keyframes socle-rideau { from { clip-path: inset(0 0 100% 0); } to { clip-path: inset(0); } }
+@keyframes socle-marches { from { transform: scaleY(0); } }
+@media (prefers-reduced-motion: no-preference) {
+  /* À l'impression, rien ne bouge : une page imprimée garderait l'état de
+     départ de tout ce qui n'était pas encore à l'écran — des pages vides
+     (relecture du 4 octobre 2026). */
+  @media print { *, *::before, *::after { animation: none !important; } }
+
+  /* L'accroche qui ouvre la page. Un mot d'une autre police dans le titre
+     (l'italique de « écrit par vous. ») arrive juste après lui — en
+     fondu seulement : un passage dans une ligne ne se déplace pas. */
+  main > .bloc-accroche:first-of-type :is(.accroche__contenu, .accroche__panneau) > :not(.accroche__titre, .accroche__panneau) {
+    animation: var(--anim-entree, none) .7s cubic-bezier(.2, .7, .2, 1) .38s both;
+  }
+  main > .bloc-accroche:first-of-type :is(.accroche__contenu, .accroche__panneau) > .surtitre { animation-delay: 0s; }
+  main > .bloc-accroche:first-of-type :is(.accroche__contenu, .accroche__panneau) > .accroche__boutons { animation-delay: .5s; }
+  main > .bloc-accroche:first-of-type .accroche__titre {
+    animation: var(--anim-devoile, none) .9s cubic-bezier(.16, 1, .3, 1) .06s both;
+  }
+  main > .bloc-accroche:first-of-type .accroche__titre [data-police] {
+    animation: var(--anim-entree, none) .8s ease-out .55s both;
+  }
+
+  /* Le menu plein écran qui s'ouvre : un rideau qui descend, puis ses
+     liens l'un après l'autre (il se rejoue à chaque ouverture). */
+  .entete__plein:target { animation: var(--anim-rideau, none) .45s cubic-bezier(.7, 0, .2, 1) both; }
+  .entete__plein:target :is(.menu li, .entete__bouton) {
+    animation: var(--anim-entree, none) .5s cubic-bezier(.2, .7, .2, 1) .2s both;
+  }
+  .entete__plein:target .menu li:nth-child(2) { animation-delay: .25s; }
+  .entete__plein:target .menu li:nth-child(3) { animation-delay: .3s; }
+  .entete__plein:target .menu li:nth-child(4) { animation-delay: .35s; }
+  .entete__plein:target .menu li:nth-child(n+5) { animation-delay: .4s; }
+  .entete__plein:target .entete__plein-liens > .entete__bouton { animation-delay: .45s; }
+
+  @supports (animation-timeline: view()) {
+    .bloc:not(.bloc-accroche) :is(.tete-section > :not(.titre-section), .carte, .galerie__element, .faq__element, .texte__paragraphe,
+      .presentation__texte, .presentation__appel, .presentation__media, .appel__contenu, .horaires__acces) {
+      animation: var(--anim-apparition, none) linear both;
+      animation-timeline: view();
+      animation-range: entry 0% entry 40%;
+    }
+    .bloc:not(.bloc-accroche) .titre-section {
+      animation: var(--anim-devoile, none) linear both;
+      animation-timeline: view();
+      animation-range: entry 10% entry 70%;
+    }
+
+    /* Les marches : posées au-dessus d'une section dont le fond change,
+       dans la marge basse de la précédente (plus haute qu'elles), de la
+       couleur de la nouvelle section. Des pavés carrés, quelle que soit
+       la largeur : le motif se répète tous les 24 pavés. Le pied de page
+       (toujours « foncé ») en reçoit aussi, si la dernière section ne
+       l'est pas. Jamais sur une section masquée : en édition, son
+       ::before porte la mention « Masquée » (cadre.css) ; ni au-dessus d'une
+       accroche « image-fond », dont le fond ne se voit pas (mais après
+       elle, toujours). */
+    :is(.bloc--clair + :is(.bloc--doux, .bloc--sombre), .bloc--doux + :is(.bloc--clair, .bloc--sombre),
+      .bloc--sombre + :is(.bloc--clair, .bloc--doux), .accroche--pleine + .bloc,
+      main:has(> .bloc:last-of-type:not(.bloc--sombre)) + .pied):not([data-masque], .accroche--pleine) {
+      position: relative;
+    }
+    :is(.bloc--clair + :is(.bloc--doux, .bloc--sombre), .bloc--doux + :is(.bloc--clair, .bloc--sombre),
+      .bloc--sombre + :is(.bloc--clair, .bloc--doux), .accroche--pleine + .bloc,
+      main:has(> .bloc:last-of-type:not(.bloc--sombre)) + .pied):not([data-masque], .accroche--pleine)::before {
+      --hauteur-marches: clamp(24px, 4.5vw, 66px);
+      /* 24 colonnes de 0 à 3 pavés, jamais deux trous de suite : une image
+         de données (la CSP permet `data:`), étirée en hauteur, répétée. */
+      --motif-marches: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 3' preserveAspectRatio='none'%3E%3Cpath d='M0 2h2v1h-2zM2 1h2v2h-2zM4 2h2v1h-2zM6 0h2v3h-2zM8 1h2v2h-2zM10 2h2v1h-2zM12 1h2v2h-2zM16 2h2v1h-2zM18 0h2v3h-2zM20 1h2v2h-2zM22 1h2v2h-2zM24 2h2v1h-2zM26 0h2v3h-2zM28 2h2v1h-2zM30 1h2v2h-2zM34 1h2v2h-2zM36 0h2v3h-2zM38 2h2v1h-2zM40 1h2v2h-2zM42 2h2v1h-2zM44 0h2v3h-2zM46 1h2v2h-2z'/%3E%3C/svg%3E");
+      content: var(--marches, none);
+      position: absolute; left: 0; right: 0; bottom: calc(100% - 1px);   /* 1 px dans la section : pas de liseré entre les deux */
+      height: calc(var(--hauteur-marches) + 1px);
+      background-color: inherit;
+      -webkit-mask: var(--motif-marches) 0 100% / calc(var(--hauteur-marches) * 8) 100% repeat-x;
+      mask: var(--motif-marches) 0 100% / calc(var(--hauteur-marches) * 8) 100% repeat-x;
+      transform-origin: 50% 100%;
+      pointer-events: none;
+      animation: var(--anim-marches, none) linear both;
+      animation-timeline: view();
+      animation-range: entry 0% cover 30%;
+    }
+  }
+}
+/* Les survols animés, allumés par `--survols: oui` (une requête de style :
+   un navigateur qui ne la connaît pas garde les survols de toujours). Ce
+   ne sont que des transitions : le coupe-tout du mouvement réduit les
+   rend instantanées. */
+@container style(--survols: oui) {
+  .bouton--contour {
+    background: linear-gradient(var(--accent), var(--accent)) no-repeat 0 0 / 0% 100%;
+    transition: background-size .35s cubic-bezier(.2, .7, .2, 1), color .35s, transform .2s ease, box-shadow .2s ease;
+  }
+  .bouton--contour:hover { background-size: 100% 100%; color: var(--sur-accent); }
+  .menu a {
+    text-decoration: none;
+    background: linear-gradient(currentColor, currentColor) no-repeat 0 100% / 0% 2px;
+    transition: background-size .3s cubic-bezier(.2, .7, .2, 1), color .2s;
+  }
+  .menu a:hover { text-decoration: none; background-size: 100% 2px; }
+  .galerie__image { transition: transform .5s cubic-bezier(.2, .7, .2, 1), box-shadow .5s; }
+  .galerie__figure:hover .galerie__image { transform: translateY(-6px); box-shadow: 0 24px 40px -26px rgba(0, 0, 0, .6); }
 }
 
 /* ----- Mouvement réduit ----- */

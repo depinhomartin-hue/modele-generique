@@ -474,3 +474,12 @@ déploiement.
   s'effacent par l'alarme du Durable Object (§ 5) ; l'export porte les
   2 000 messages les plus récents et `exporter` signale ceux qui restent
   (§ 6).
+- **4 octobre 2026** — socle 0.4.0, pour le site de l'atelier
+  (`clients/projet-web`, nom provisoire « Projet WEB ») : thème Braise
+  (sombre ; l'éditeur nomme ses fonds Noir / Anthracite / Clair), duo
+  Affiche, case « Animations douces » (onglet Thème), menu plein écran
+  (onglet Site : visible dans l'aperçu ; en édition, le menu reste dans
+  la barre). Les outils marchent sous Windows (`deployer` lance npm et
+  wrangler par cmd.exe). Un client du socle peut donc être un site
+  « vitrine de studio », pas seulement un artisan : mêmes règles, mêmes
+  contrôles.

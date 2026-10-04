@@ -12,9 +12,9 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
 import { creerSite } from "../socle/worker.js";
-import { normaliser, rendrePage, rendreCorps, rendreBloc, ancresDeLaPage } from "../socle/public/rendu/page.js";
+import { normaliser, rendrePage, rendreCorps, rendreBloc, ancresDeLaPage, MENUS, menuDe } from "../socle/public/rendu/page.js";
 import { texteRiche, texteBrut, echapper, adresseSure, imageSure, lienTelephone, destination, identifiantValide } from "../socle/public/rendu/outils.js";
-import { echelleValide, themeDe, THEMES, COUPLES } from "../socle/public/rendu/themes.js";
+import { echelleValide, themeDe, THEMES, COUPLES, variablesCss } from "../socle/public/rendu/themes.js";
 import { BLOCS, CATALOGUE, nouveauBloc, valeurReglage, reglageActif } from "../socle/public/rendu/registre.js";
 import { restesDuModele, contientUnTrou, compterTrous, mentionsPresentes, PAGE_MENTIONS as PAGE_MENTIONS_STRUCTURE } from "../socle/public/rendu/structure.js";
 import { LIBELLES } from "../socle/public/rendu/libelles.js";
@@ -184,6 +184,103 @@ for (const [v, attendu] of [[null, 1], ["", 1], [{ toString: 1 }, 1], [1.05, 1],
   verifier("échelle des titres " + JSON.stringify(v), echelleValide(v) === attendu, String(echelleValide(v)));
 }
 verifier("duo inconnu : celui du thème", themeDe({ theme: { id: "atelier", duo: "inconnu" } }).duo.id === "epure");
+
+/* ----- Thème sombre, forme des titres, mouvement (4 octobre 2026) ----- */
+{
+  const v = (theme) => variablesCss(themeDe({ theme }));
+  const braise = v({ id: "braise", duo: "affiche", animations: true });
+  const fournil = v({ id: "fournil" });
+  verifier("braise : un thème sombre passe les champs et les barres de défilement en sombre", braise.includes("color-scheme:dark") && !fournil.includes("color-scheme"));
+  verifier("braise : son duo est « affiche »", themeDe({ theme: { id: "braise" } }).duo.id === "affiche");
+  verifier("affiche : la forme des titres passe par des variables, les autres duos n'en posent aucune",
+    /--casse-titre:uppercase;--largeur-titre:82%;--graisse-titre:760/.test(braise) && !/--(casse|largeur|graisse|interlettrage|interligne)-titre/.test(fournil), braise);
+  verifier("affiche : sa taille multiplie le cran choisi par l'éditrice",
+    braise.includes("--echelle-titre:1.22;") && v({ id: "braise", echelleTitres: 1.12 }).includes("--echelle-titre:1.366;") && fournil.includes("--echelle-titre:1;"));
+  verifier("affiche : dans un titre, le mot d'une autre police reprend sa forme (minuscules, graisse normale)",
+    braise.includes('[data-police]:not([data-police="affiche"]){text-transform:none;font-stretch:normal;letter-spacing:normal;font-weight:400}') &&
+    !fournil.includes(":not([data-police="));
+  verifier("affiche : posé dans le titre d'un autre duo, le mot garde ses capitales", fournil.includes(' [data-police="affiche"]{text-transform:uppercase;'));
+  verifier("mouvement : la case cochée pose les noms des @keyframes", braise.includes("--anim-entree:socle-entree;--anim-apparition:socle-apparition"));
+  verifier("mouvement : sans la case, aucune variable d'animation", !fournil.includes("--anim-"));
+  verifier("mouvement : la case allume aussi le dévoilement, les marches et les survols",
+    braise.includes("--anim-devoile:socle-devoile;--anim-marches:socle-marches;--anim-rideau:socle-rideau;--marches:\"\";--survols:oui"));
+  verifier("mouvement : sans la case, ni marches ni survols", !/--marches|--survols/.test(fournil));
+
+  /* Le menu plein écran : un choix de l'onglet « Site », une classe sur
+     l'en-tête, rien d'autre — le HTML du menu ne change pas. */
+  const copie = (v) => JSON.parse(JSON.stringify(v));   // `copieDe` n'est déclaré que plus bas
+  const avecMenu = (menu) => normaliser(Object.assign(copie(contenuLivre), { entete: Object.assign(copie(contenuLivre.entete), menu === undefined ? {} : { menu }) }));
+  const entete = (menu) => (rendreCorps({ contenu: avecMenu(menu), client }).match(/<header class="[^"]*">/) || [""])[0];
+  verifier("menu : « barre » par défaut, et pour toute valeur inconnue",
+    MENUS.map((m) => m.valeur).join() === "barre,plein-ecran" &&
+    [undefined, "barre", "plein", "PLEIN-ECRAN", 1, { toString: 1 }, null].every((m) => menuDe(avecMenu(m)) === "barre" && entete(m) === '<header class="entete">'));
+  verifier("menu : « plein-ecran » pose sa classe sur l'en-tête", menuDe(avecMenu("plein-ecran")) === "plein-ecran" && entete("plein-ecran") === '<header class="entete entete--plein">');
+  const corps = (menu, edition = false) => rendreCorps({ contenu: avecMenu(menu), client, edition });
+  const plein = corps("plein-ecran");
+  verifier("menu : plein écran, un lien « Menu » vers un calque, refermé par un repère, sans <details> ni script",
+    plein.includes('<a class="entete__ouvrir" href="#menu_plein">') && plein.includes('<nav id="menu_plein" class="entete__plein" aria-label="Menu principal">') &&
+    plein.includes('<a class="entete__fermer" href="#menu_ferme">') && plein.includes('<span id="menu_ferme" class="entete__repere"></span>') &&
+    !/<details|<script/.test(plein.slice(0, plein.indexOf("</header>"))));
+  const liensEntete = (html) => (html.slice(html.indexOf("<header"), html.indexOf("</header>")).match(/href="#[a-z-]+"/g) || []).length;
+  verifier("menu : plein écran, chaque lien et le bouton une seule fois (la barre les écrit deux fois)", liensEntete(plein) > 0 && liensEntete(plein) * 2 === liensEntete(corps(undefined)));
+  verifier("menu : ses identifiants ne peuvent pas être l'ancre d'une section (un « _ »)", !identifiantValide("menu_plein") && !identifiantValide("menu_ferme"));
+  verifier("menu : en édition, l'en-tête de la barre (l'éditeur ne suit pas les liens)", corps("plein-ecran", true) === corps(undefined, true));
+  for (const faux of ["true", 1, "oui", {}, null, [true]]) {
+    verifier("mouvement : seul un vrai true l'allume — " + JSON.stringify(faux), themeDe({ theme: { animations: faux } }).animations === false);
+  }
+  verifier("braise : les noms de ses fonds disent ce qu'ils montrent", JSON.stringify(THEMES.braise.nomsFonds) === '{"clair":"Noir","doux":"Anthracite","sombre":"Clair"}');
+
+  /* Les feuilles du site : tout mouvement est facultatif et réversible.
+     Chaque `animation` vit sous `prefers-reduced-motion: no-preference`
+     (ou y est coupée), chaque chronologie de défilement sous `@supports`,
+     aucun élément n'est caché hors d'un @keyframes, aucun curseur n'est
+     remplacé. */
+  const sansCommentaires = (t) => t.replace(/\/\*[\s\S]*?\*\//g, "");
+  // Les plages [début, fin] des blocs qui suivent chaque en-tête `motif`.
+  const plages = (css, motif) => {
+    const res = [];
+    for (const m of css.matchAll(motif)) {
+      const debut = css.indexOf("{", m.index);
+      let profondeur = 0, i = debut;
+      for (; i < css.length; i++) {
+        if (css[i] === "{") profondeur++;
+        else if (css[i] === "}" && --profondeur === 0) break;
+      }
+      res.push([debut, i]);
+    }
+    return res;
+  };
+  const dans = (i, ps) => ps.some(([a, b]) => i > a && i < b);
+  const fichiers = ["socle.css"].concat(Object.keys(BLOCS).map((t) => "blocs/" + t + ".css"));
+  const fautes = [];
+  for (const f of fichiers) {
+    const css = sansCommentaires(readFileSync(racine + "socle/public/css/" + f, "utf8"));
+    const libre = plages(css, /@media\s*\(prefers-reduced-motion:\s*no-preference\)/g);
+    const coupe = plages(css, /@media\s*\(prefers-reduced-motion:\s*reduce\)/g);
+    const supports = plages(css, /@supports\s*\(animation-timeline:\s*view\(\)\)/g);
+    const images = plages(css, /@keyframes\s+[\w-]+/g);
+    for (const m of css.matchAll(/(?<![\w-])animation(-name)?\s*:/g)) {
+      if (!dans(m.index, libre) && !dans(m.index, coupe)) fautes.push(f + " : animation hors de « no-preference »");
+    }
+    // Une déclaration (après « { » ou « ; »), pas l'en-tête du @supports.
+    for (const m of css.matchAll(/[{;]\s*animation-timeline\s*:/g)) {
+      if (!dans(m.index, supports)) fautes.push(f + " : animation-timeline hors de @supports");
+    }
+    // Seule exception : la barre du milieu du burger, effacée quand le menu
+    // est OUVERT (`[open]`) — un geste du visiteur, pas un état de départ.
+    for (const m of css.matchAll(/opacity\s*:\s*0(?![.\d])/g)) {
+      const regle = css.slice(css.lastIndexOf("}", m.index) + 1, m.index);
+      if (!dans(m.index, images) && !regle.includes("[open]")) fautes.push(f + " : un élément caché hors d'un @keyframes");
+    }
+    if (/cursor\s*:\s*(url\(|none)/.test(css)) fautes.push(f + " : un curseur remplacé");
+  }
+  verifier("feuilles : le mouvement est facultatif — sous no-preference et @supports, rien de caché d'avance, aucun curseur remplacé", fautes.length === 0, fautes.join(", "));
+  const socle = sansCommentaires(readFileSync(racine + "socle/public/css/socle.css", "utf8"));
+  const regleMarches = (socle.match(/:is\(\.bloc--clair \+[^{]*\)::before\s*\{/) || [""])[0];
+  verifier("feuilles : les marches ne remplacent jamais la mention d'une section masquée (son ::before, en édition)", /:not\(\[data-masque\]/.test(regleMarches), regleMarches);
+  verifier("feuilles : rien ne bouge à l'impression (une page imprimée garderait l'état de départ)",
+    /@media print\s*\{\s*\*, \*::before, \*::after\s*\{\s*animation: none !important;/.test(socle));
+}
 
 /* =========================================================
    Phase 2 — ce que l'éditeur demande au rendu
