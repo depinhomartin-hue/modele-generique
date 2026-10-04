@@ -1,0 +1,11 @@
+{
+  "id": "projet-web",
+  "demo": true,
+  "mentionDemo": "Version de travail — « Projet WEB » est un nom provisoire.",
+  "domaine": "",
+  "socle": "0.4.0",
+  "administration": {
+    "adresses": []
+  },
+  "categorieGoogle": "ProfessionalService"
+}

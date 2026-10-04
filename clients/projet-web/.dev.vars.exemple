@@ -1,0 +1,21 @@
+# Variables du développement local — à recopier en `.dev.vars` (jamais
+# versionné : il peut un jour contenir de vrais secrets).
+#   cp clients/projet-web/.dev.vars.exemple clients/projet-web/.dev.vars
+
+# L'adresse autorisée à entrer dans l'administration en local, en plus de
+# celles de client.json (« administration.adresses »). Plusieurs adresses :
+# séparées par des virgules.
+ADRESSES_ATELIER=essai@example.com
+
+# Aucun e-mail ne part : le lien de connexion s'affiche sur la page « vérifiez
+# votre boîte » et dans la console de wrangler.
+# N'agit QUE sur http://localhost et http://127.0.0.1 — posée par erreur en
+# production, cette variable ne fait rien.
+COURRIEL_JOURNAL=1
+
+# Le lien d'accès d'une MAQUETTE, sans e-mail : /admin/demo?cle=<ce secret>.
+# Au moins 32 caractères tirés au hasard (lettres, chiffres, - et _). Ne
+# vaut que si client.json dit "demo": true. En ligne, il se pose avec
+#   npx wrangler secret put ACCES_DEMO -c clients/projet-web/wrangler.toml
+# et jamais dans un fichier versionné.
+ACCES_DEMO=essai-local-0123456789abcdefghijklmnop

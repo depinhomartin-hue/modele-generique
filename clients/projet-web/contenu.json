@@ -1,0 +1,376 @@
+{
+  "version": 1,
+  "site": {
+    "nom": "Projet WEB",
+    "description": "Des sites vitrines pour artisans, commerçants et petites entreprises, que vous modifiez vous-même en cliquant sur vos textes."
+  },
+  "theme": {
+    "id": "braise",
+    "duo": "affiche",
+    "echelleTitres": 1,
+    "animations": true
+  },
+  "entete": {
+    "menu": "plein-ecran",
+    "liens": [
+      {
+        "texte": "Exemples",
+        "vers": "#exemples"
+      },
+      {
+        "texte": "Comment ça marche",
+        "vers": "#comment-ca-marche"
+      },
+      {
+        "texte": "Offres",
+        "vers": "#offres"
+      },
+      {
+        "texte": "Questions",
+        "vers": "#questions"
+      }
+    ],
+    "bouton": {
+      "texte": "Nous écrire",
+      "vers": "#contact"
+    }
+  },
+  "pages": {
+    "accueil": {
+      "titre": "Projet WEB — des sites vitrines que vous modifiez vous-même",
+      "description": "Un beau site pour votre commerce, que vous modifiez seul en cliquant sur vos textes. Pour les artisans, commerçants et petites entreprises.",
+      "ordre": [
+        "accroche-1",
+        "prestations-1",
+        "prestations-2",
+        "appel-1",
+        "galerie-1",
+        "prestations-3",
+        "prestations-4",
+        "prestations-5",
+        "presentation-1",
+        "faq-1",
+        "contact-1"
+      ]
+    },
+    "mentions-legales": {
+      "titre": "Mentions légales",
+      "description": "Qui édite ce site, qui l'héberge, et ce que deviennent vos données.",
+      "ordre": [
+        "texte-1"
+      ]
+    }
+  },
+  "blocs": {
+    "accroche-1": {
+      "type": "accroche",
+      "disposition": "cote-a-cote",
+      "fond": "clair",
+      "surtitre": "Sites vitrines · artisans et commerçants",
+      "titre": "Le site de votre commerce, <em><span data-police=\"classique\">écrit par vous.</span></em>",
+      "texte": "On construit votre site avec vous. Ensuite, vous changez un texte, une photo ou vos horaires en cliquant dessus, comme dans un document.",
+      "image": "",
+      "imageAlt": "",
+      "boutons": [
+        {
+          "texte": "Voir des exemples",
+          "vers": "#exemples",
+          "style": "plein"
+        },
+        {
+          "texte": "Nous écrire",
+          "vers": "#contact",
+          "style": "contour"
+        }
+      ]
+    },
+    "prestations-1": {
+      "type": "prestations",
+      "fond": "sombre",
+      "ancre": "constat",
+      "surtitre": "Le constat",
+      "titre": "Un site, c'est souvent…",
+      "intro": "On a voulu faire autrement.",
+      "elements": [
+        {
+          "titre": "L'agence",
+          "texte": "Un beau site, mais un devis salé. Et pour changer un horaire, il faut appeler, puis attendre.",
+          "prix": ""
+        },
+        {
+          "titre": "Le faire soi-même",
+          "texte": "Des soirées entières sur un logiciel en ligne, pour un résultat qui ne vous ressemble pas vraiment.",
+          "prix": ""
+        },
+        {
+          "titre": "Le site oublié",
+          "texte": "Des horaires faux, une photo d'il y a cinq ans : un site pas à jour fait fuir plus qu'il n'attire.",
+          "prix": ""
+        }
+      ]
+    },
+    "prestations-2": {
+      "type": "prestations",
+      "fond": "clair",
+      "ancre": "demonstration",
+      "surtitre": "La démonstration",
+      "titre": "Cliquez. Écrivez. <em><span data-police=\"classique\">Publiez.</span></em>",
+      "intro": "Votre site se modifie comme un document. Rien à installer, pas de jargon.",
+      "elements": [
+        {
+          "titre": "1 · Cliquez",
+          "texte": "Sur un titre, un horaire, une phrase : directement sur votre page, là où vous la voyez.",
+          "prix": ""
+        },
+        {
+          "titre": "2 · Écrivez",
+          "texte": "Changez le texte, une photo, l'ordre des sections. Tout s'enregistre au fur et à mesure.",
+          "prix": ""
+        },
+        {
+          "titre": "3 · Publiez",
+          "texte": "Un clic, et vos clients voient la nouvelle version. L'ancienne reste gardée, au cas où.",
+          "prix": ""
+        }
+      ]
+    },
+    "appel-1": {
+      "type": "appel",
+      "fond": "doux",
+      "titre": "Essayez <em><span data-police=\"classique\">vous-même.</span></em>",
+      "texte": "Notre boulangerie imaginaire est ouverte à tous : changez un texte, publiez, regardez le résultat.",
+      "bouton": {
+        "texte": "Ouvrir la démonstration",
+        "vers": "https://vitrine-demo-boulangerie.depinhomartin.workers.dev/admin",
+        "style": "plein"
+      }
+    },
+    "galerie-1": {
+      "type": "galerie",
+      "fond": "clair",
+      "ancre": "exemples",
+      "surtitre": "Exemples",
+      "titre": "Chaque site a <em><span data-police=\"classique\">sa couleur.</span></em>",
+      "intro": "Le même outil, des styles très différents. Chacun choisit son thème parmi des thèmes testés : impossible de rendre son site illisible.",
+      "images": [
+        {
+          "src": "/medias/9f4845f1733336cd624a3677f6804a31.jpg",
+          "alt": "Page d'accueil du site Graine de Pensée",
+          "legende": "<strong>Graine de Pensée</strong> — créations cousues main, Châtenois (Alsace). Sa créatrice gère son site seule. <a href=\"https://grainedepensee.fr\">Voir le site</a>"
+        },
+        {
+          "src": "/medias/9b49644f88f3f3908b8ae903cac3ef29.jpg",
+          "alt": "Page d'accueil de la boulangerie de démonstration, thème Fournil",
+          "legende": "<strong>Au Pétrin d'Ernestine</strong> — notre boulangerie de démonstration, thème Fournil."
+        },
+        {
+          "src": "/medias/15b732578839519ed2eb289604492062.jpg",
+          "alt": "La même boulangerie, thème Atelier",
+          "legende": "La même boulangerie, thème Atelier."
+        },
+        {
+          "src": "/medias/0234a6bdf22db1a2f3803530ce5d14c1.jpg",
+          "alt": "La même boulangerie, thème Verger",
+          "legende": "Et en thème Verger : un clic suffit pour changer."
+        }
+      ]
+    },
+    "prestations-3": {
+      "type": "prestations",
+      "fond": "sombre",
+      "ancre": "comment-ca-marche",
+      "surtitre": "Comment ça se passe",
+      "titre": "Quatre étapes, et c'est à vous.",
+      "intro": "",
+      "elements": [
+        {
+          "titre": "1 · La maquette",
+          "texte": "Avant de décider quoi que ce soit, vous voyez à quoi ressemblerait votre site, à votre nom.",
+          "prix": ""
+        },
+        {
+          "titre": "2 · Le rendez-vous",
+          "texte": "On ajuste ensemble : vos textes, vos photos, ce que vous voulez mettre en avant.",
+          "prix": ""
+        },
+        {
+          "titre": "3 · En ligne",
+          "texte": "Sur votre nom de domaine, avec vos vrais contenus. On s'occupe de toute la partie technique.",
+          "prix": ""
+        },
+        {
+          "titre": "4 · À vous de jouer",
+          "texte": "Une heure ensemble pour apprendre à le modifier. Ensuite, vous êtes autonome, et on reste joignables.",
+          "prix": ""
+        }
+      ]
+    },
+    "prestations-4": {
+      "type": "prestations",
+      "fond": "doux",
+      "ancre": "garanties",
+      "surtitre": "Vos garanties",
+      "titre": "Votre site <em><span data-police=\"classique\">vous appartient.</span></em>",
+      "intro": "",
+      "elements": [
+        {
+          "titre": "À votre nom",
+          "texte": "Votre nom de domaine est à vous, pas à nous. Vous en êtes le titulaire, du premier au dernier jour.",
+          "prix": ""
+        },
+        {
+          "titre": "Libre de partir",
+          "texte": "Quand vous voulez, avec votre contenu, vos photos et une copie complète de votre site, prête à être installée ailleurs.",
+          "prix": ""
+        },
+        {
+          "titre": "Toujours lisible",
+          "texte": "Les couleurs se choisissent parmi des thèmes testés pour être lus par tous, sur tous les écrans.",
+          "prix": ""
+        },
+        {
+          "titre": "Rapide, sans pub",
+          "texte": "Lisible sur téléphone, avec ses mentions légales. Aucune publicité, jamais.",
+          "prix": ""
+        }
+      ]
+    },
+    "prestations-5": {
+      "type": "prestations",
+      "fond": "clair",
+      "ancre": "offres",
+      "surtitre": "Les offres",
+      "titre": "Trois formules, <em><span data-police=\"classique\">c'est tout.</span></em>",
+      "intro": "Nos tarifs arrivent très bientôt. En attendant, écrivez-nous : on vous répond avec un prix clair.",
+      "elements": [
+        {
+          "titre": "La création",
+          "texte": "Votre site construit pour vous : vos textes et vos photos mis en forme, Google, les mentions légales, et une heure de prise en main.",
+          "prix": "Tarif bientôt"
+        },
+        {
+          "titre": "L'abonnement",
+          "texte": "Chaque année : l'hébergement, votre nom de domaine renouvelé, les améliorations de l'outil, et de l'aide quand il faut.",
+          "prix": "Tarif bientôt"
+        },
+        {
+          "titre": "Les options",
+          "texte": "Une adresse e-mail pro, la réservation ou le paiement en ligne branchés, des thèmes de saison, une section sur mesure.",
+          "prix": "Sur devis"
+        }
+      ]
+    },
+    "presentation-1": {
+      "type": "presentation",
+      "fond": "sombre",
+      "ancre": "qui-on-est",
+      "surtitre": "Qui on est",
+      "titre": "Deux associés, <em><span data-police=\"classique\">deux métiers.</span></em>",
+      "texte": "<strong>Martin</strong> conçoit et construit les sites, et l'outil qui vous permet de les modifier.<br><br><strong>[À compléter : prénom de l'associé]</strong> vient vous rencontrer, écoute ce dont vous avez besoin, et reste votre contact ensuite.<br><br>Tout est parti de Graine de Pensée, le site d'une couturière alsacienne qui le fait vivre seule. C'est ce qu'on veut pour vous.",
+      "image": "",
+      "imageAlt": "",
+      "inverse": false,
+      "bouton": {
+        "texte": "",
+        "vers": "",
+        "style": "contour"
+      }
+    },
+    "faq-1": {
+      "type": "faq",
+      "fond": "doux",
+      "ancre": "questions",
+      "surtitre": "Questions",
+      "titre": "Vos questions",
+      "intro": "",
+      "questions": [
+        {
+          "question": "Je ne suis pas à l'aise avec l'informatique.",
+          "reponse": "Si vous savez écrire un SMS, vous savez modifier votre site : on clique sur le texte, on écrit, on publie. Et on vous montre tout, pendant une heure, à la livraison."
+        },
+        {
+          "question": "Et si je fais une bêtise ?",
+          "reponse": "Rien ne part en ligne avant que vous cliquiez sur « Publier ». Chaque version publiée est gardée : on revient en arrière quand on veut."
+        },
+        {
+          "question": "Je veux prendre des rendez-vous ou vendre en ligne.",
+          "reponse": "On branche les services qui ont fait leurs preuves (Planity, Calendly, un lien de paiement…). On ne fabrique pas de boutique en ligne : ce n'est pas notre métier."
+        },
+        {
+          "question": "J'ai déjà un nom de domaine.",
+          "reponse": "Vous le gardez, là où il est. On le fait simplement pointer vers votre nouveau site."
+        },
+        {
+          "question": "Et si je veux partir ?",
+          "reponse": "Votre nom de domaine est à votre nom. On vous remet votre contenu, vos photos et une copie complète de votre site, prête à être installée ailleurs."
+        },
+        {
+          "question": "Combien ça coûte ?",
+          "reponse": "Un prix pour la création, puis un abonnement à l'année. Nos tarifs arrivent bientôt ; en attendant, écrivez-nous, on vous répond avec un prix clair."
+        }
+      ]
+    },
+    "contact-1": {
+      "type": "contact",
+      "fond": "clair",
+      "ancre": "contact",
+      "surtitre": "Contact",
+      "titre": "Parlons de <em><span data-police=\"classique\">votre site.</span></em>",
+      "intro": "",
+      "texte": "Dites-nous en deux lignes ce que vous faites et ce que vous aimeriez. On vous répond.",
+      "telephone": "",
+      "email": "",
+      "formulaire": true
+    },
+    "texte-1": {
+      "type": "texte",
+      "surtitre": "",
+      "titre": "Mentions légales",
+      "intro": "",
+      "paragraphes": [
+        {
+          "titre": "Éditeur du site",
+          "texte": "Nom commercial : Projet WEB<br>[À compléter : forme juridique, par exemple entreprise individuelle (EI) — dans ce cas, le nom et le prénom de l'entrepreneur —, micro-entreprise, EURL, SARL ou SAS au capital de … € — dans ce cas, la dénomination sociale]<br>Adresse du siège : [À compléter]<br>SIREN ou SIRET : [À compléter]<br>Immatriculation : [À compléter : Registre national des entreprises (RNE), et pour une société ou un commerçant « RCS de &lt;ville&gt; n° … »]<br>TVA : [À compléter : numéro de TVA intracommunautaire FR…, ou « TVA non applicable, article 293 B du CGI »]<br>Téléphone : [À compléter] — E-mail : [À compléter]"
+        },
+        {
+          "titre": "Responsable de la publication",
+          "texte": "[À compléter : prénom et nom]"
+        },
+        {
+          "titre": "Hébergement",
+          "texte": "Cloudflare, Inc., 101 Townsend Street, San Francisco, CA 94107, États-Unis.<br>Téléphone : +1 888 993 5273.<br>www.cloudflare.com"
+        },
+        {
+          "titre": "Médiation de la consommation",
+          "texte": "Conformément à l'article L612-1 du Code de la consommation, vous pouvez recourir gratuitement à un médiateur de la consommation : [À compléter : nom, adresse postale et site internet du médiateur]."
+        },
+        {
+          "titre": "Propriété intellectuelle",
+          "texte": "Les textes et les photos de ce site appartiennent à son éditeur, sauf mention contraire. Toute reproduction, même partielle, demande son accord préalable."
+        },
+        {
+          "titre": "Données personnelles",
+          "texte": "Le responsable du traitement de vos données est l'entreprise qui édite ce site, désignée ci-dessus.<br><br>Quand vous écrivez par le formulaire de contact, nous recevons votre nom, votre adresse e-mail, votre téléphone si vous le donnez, et votre message. Ils servent uniquement à répondre à votre demande. Base légale : les mesures précontractuelles prises à votre demande, ou notre intérêt légitime à vous répondre.<br><br>Ces données ne sont destinées qu'à l'entreprise. Notre hébergeur, Cloudflare, les conserve et nous les achemine pour notre compte, en tant que sous-traitant : il peut les traiter hors de l'Union européenne, avec les garanties prévues par le RGPD. Elles sont gardées un an au plus sur le site.<br><br>Vous pouvez accéder à vos données, les faire rectifier ou effacer, vous opposer à leur traitement, en demander la limitation, ou les recevoir pour les confier à quelqu'un d'autre (portabilité) : écrivez à [À compléter : adresse e-mail]. Si vous estimez que vos droits ne sont pas respectés, vous pouvez adresser une réclamation à la CNIL (www.cnil.fr).<br><br>Ce site ne dépose aucun cookie et ne fait aucune mesure d'audience publicitaire. Les polices de caractères sont fournies par Google Fonts : pour les afficher, votre navigateur transmet votre adresse IP à Google."
+        }
+      ]
+    }
+  },
+  "pied": {
+    "texte": "Des sites vitrines que vous modifiez vous-même, pour les artisans, commerçants et petites entreprises.",
+    "liens": [
+      {
+        "texte": "Exemples",
+        "vers": "#exemples"
+      },
+      {
+        "texte": "Offres",
+        "vers": "#offres"
+      },
+      {
+        "texte": "Nous écrire",
+        "vers": "#contact"
+      }
+    ]
+  },
+  "libelles": {}
+}
